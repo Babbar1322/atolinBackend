@@ -1,0 +1,18 @@
+{
+    "provider": null,
+    "address": "0xDbeaeb8F410C204A838c19d0DE3521CFE9F4615B",
+    "publicKey": "0x02d62c116b2136967b1f2841bbc2a5ba6be726d5e3273c8391981ee738a0968440",
+    "privateKey": "0xcbbbc2d60b2b8db19312d50f18bc8a83e48e72bbb906df579fb07fb7364dc7aa",
+    "fingerprint": "0x8656bfb8",
+    "parentFingerprint": "0x6e57a331",
+    "mnemonic": {
+        "phrase": "unknown frog auto release tumble patrol laundry smile knee spider vintage another",
+        "password": "",
+        "wordlist": { "locale": "en" },
+        "entropy": "0xedeba43e5a9ea5425f6e657b9a37d084"
+    },
+    "chainCode": "0xe3c22702ee8a43b0bb776ca240a183f4d3ae173f6fef29940a1558722dbbb44a",
+    "path": "m/44'/60'/0'/0/0",
+    "index": 0,
+    "depth": 5
+}

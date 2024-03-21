@@ -1,0 +1,20 @@
+{
+    "data": {
+        "provider": null,
+        "address": "0x36D8A4f5daB8e2287034AE449367350355cDCb3a",
+        "publicKey": "0x039f5f494c8dded34683ce55ef49690b03bcfd2fc95779725856a57c4ada8c543b",
+        "privateKey": "0xb57f4d0efeffe9d88aa27820271ceace99e03d32c2585d4e03aac70de6dd5b69",
+        "fingerprint": "0x4818bcb8",
+        "parentFingerprint": "0x84a19123",
+        "mnemonic": {
+            "phrase": "swap mesh winner tube inspire upset judge wet direct city decade reform",
+            "password": "",
+            "wordlist": { "locale": "en" },
+            "entropy": "0xdb517beff50755de5e2fcc3e852ce25a"
+        },
+        "chainCode": "0x7fd2239c844383a41bd6881095a6f869f63ce9968f04cc4ab2db3e2f175c7b4a",
+        "path": "m/44'/60'/0'/0/0",
+        "index": 0,
+        "depth": 5
+    }
+}
