@@ -14,8 +14,8 @@ class Transaction
             return ['status' => true, 'response' => $response->json()];
         }
         if ($response->failed()) {
-            if (!empty($response->json()['errorMessage'])) {
-                return ['status' => false, 'response' => $response->json()['errorMessage']];
+            if (!empty($response->json()['error_message'])) {
+                return ['status' => false, 'response' => $response->json()['error_message']];
             }
             return ['status' => false, 'response' => $response->json()];
         }
@@ -69,76 +69,112 @@ class Transaction
      */
     public static function sendToUser($amount, $receiver_id, $external_id)
     {
-        $data = [
-            'amount' => $amount,
-            'allowDuplicate' => 'true',
-            'method' => 'ACH',
-            'purpose' => 'Payment',
-            'externalId' => $external_id,
-            'source' => [
-                'account' => [
-                    'id' => 4006917
-                ]
-            ],
-            'destination' => [
-                'externalAccount' => [
-                    'id' => $receiver_id,
-                ]
-            ],
-            'type' => 'REGULAR',
-            'metaData' => [
-                'type' => 'ACH'
-            ],
-            'comment' => 'Withdraw',
-            'processingDetail' => [
-                'authType' => 'ONLINE'
-            ]
+        $quote = [
+            "product_type" => "funding",
+            "bank_guid" => "e51933ea9ce04d6f6e9f43cb9d19725e",
+            "customer_guid" => $receiver_id,
+            "asset" => "USD",
+            "receive_amount" => $amount * 100,
+            "side" => "withdrawal"
         ];
+        $quoteToken = Auth::getToken('quotes', 'execute');
+        if ($quoteToken['status'] == false) {
+            return self::returnData($quoteToken);
+        }
+        $quoteResponse = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $quoteToken['response']['access_token'],
+        ])->post('https://bank.sandbox.cybrid.app/api/quotes', $quote);
+
+        if ($quoteResponse->failed()) {
+            return self::returnData($quoteResponse);
+        }
+
+        $transfer = [
+            "quote_guid" => $quoteResponse->json()['guid'],
+            "transfer_type" => "funding",
+            "external_bank_account_guid" => $external_id,
+        ];
+        $transferToken = Auth::getToken('transfers', 'execute');
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->post("https://api.sandbox.prioritypassport.com/v1/transaction", $data);
+            'Authorization' => 'Bearer ' . $transferToken['response']['access_token'],
+        ])->post("https://bank.sandbox.cybrid.app/api/transfers", $transfer);
         // \Log::info($response);
 
         return self::returnData($response);
     }
 
-    public static function collectToMainAccount(int $amount, string $sender_id, $external_id, $type)
+    public static function collectToMainAccount(int $amount, string $sender_id, $external_id, $fee, $accountId)
     {
-        $source_type = $type === 'ACH' ? 'externalAccount' : 'card';
-        $data = [
-            'amount' => $amount,
-            'allowDuplicate' => 'true',
-            'method' => $type,
-            'purpose' => 'Payment',
-            'externalId' => $external_id,
-            'source' => [
-                $source_type => [
-                    'id' => $sender_id,
+        $quote = [
+            "product_type" => "funding",
+            "bank_guid" => "e51933ea9ce04d6f6e9f43cb9d19725e",
+            "customer_guid" => $sender_id,
+            "asset" => "USD",
+            "receive_amount" => $amount * 100,
+            "side" => "deposit",
+            "fees" => [
+                [
+                    "type" => "spread",
+                    "spread_fee" => $fee * 100
                 ]
-            ],
-            'processingDetail' => $type === 'ACH' ? [
-                'authType' => 'ONLINE',
-                'processingMode' =>  'SAME_DAY',
-            ] : [
-                'merchant' => [
-                    'id' => env('PRIORITY_MERCHANT')
-                ]
-            ],
-            'destination' => [
-                'account' => [
-                    'id' => 4006917
-                ]
-            ],
-            'reason' => 'ON_CUSTOMER_REQUEST',
-            'type' => 'REGULAR',
-            'comment' => 'Pulling funds from external account'
+            ]
         ];
+        $quoteToken = Auth::getToken('quotes', 'execute');
+        if ($quoteToken['status'] == false) {
+            return self::returnData($quoteToken);
+        }
+        $quoteResponse = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $quoteToken['response']['access_token'],
+        ])->post('https://bank.sandbox.cybrid.app/api/quotes', $quote);
+
+        if ($quoteResponse->failed()) {
+            return self::returnData($quoteResponse);
+        }
+
+        $transfer = [
+            "quote_guid" => $quoteResponse->json()['guid'],
+            "transfer_type" => "funding",
+            "external_bank_account_guid" => $external_id,
+            "customer_fiat_account_guid" => $accountId,
+        ];
+        $transferToken = Auth::getToken('transfers', 'execute');
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->post("https://api.sandbox.prioritypassport.com/v1/transaction", $data);
+            'Authorization' => 'Bearer ' . $transferToken['response']['access_token'],
+        ])->post("https://bank.sandbox.cybrid.app/api/transfers", $transfer);
         // \Log::info($response);
+
+        self::sendUserToUser($amount * 100, $accountId, env('CYBRID_MAIN_ACCOUNT'));
+
+        return self::returnData($response);
+    }
+
+    public static function sendUserToUser(int $amount, string $sender_id, string $receiver_id) {
+        $quote = [
+            "product_type"=> 'book_transfer',
+            "asset" => "USD",
+            "receive_amount" => $amount,
+        ];
+        $quoteToken = Auth::getToken('quotes', 'execute');
+        if ($quoteToken['status'] == false) {
+            return self::returnData($quoteToken);
+        }
+        $quoteResponse = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $quoteToken['response']['access_token'],
+        ])->post('https://bank.sandbox.cybrid.app/api/quotes', $quote);
+
+        if ($quoteResponse->failed()) {
+            return self::returnData($quoteResponse);
+        }
+        $transfer = [
+            "quote_guid" => $quoteResponse->json()['guid'],
+            "transfer_type" => "book",
+            "source_account_guid" => $sender_id,
+            "destination_account_guid" => $receiver_id,
+        ];
+        $transferToken = Auth::getToken('transfers', 'execute');
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $transferToken['response']['access_token'],
+        ])->post("https://bank.sandbox.cybrid.app/api/transfers", $transfer);
 
         return self::returnData($response);
     }
@@ -150,11 +186,13 @@ class Transaction
      */
     public static function getTransaction($id)
     {
+        $token = Auth::getToken("transfers", "execute");
+        if ($token["status"] == false) {
+            return self::returnData($token);
+        }
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->get("https://api.sandbox.prioritypassport.com/v1/transaction/externalId/{$id}");
-        // \Log::info($response->body());
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get("https://bank.sandbox.cybrid.app/api/transfers/{$id}");
 
         return self::returnData($response);
     }

@@ -74,7 +74,13 @@ use App\Encryption\Encryption;
                     <div class="form-group row">
                         <label for="token_price" class="col-xs-12 col-form-label">Token Price ($)</label>
                         <div class="col-xs-10" style="padding: 0px 10px">
-                            <input class="form-control" type="text" name="token_price" required id="token_price" placeholder="Desposit Fees (%)" value="{{ Setting::get('token_price')  }}">
+                            <input class="form-control" type="text" name="token_price" required id="token_price" placeholder="Token Price ($)" value="{{ Setting::get('token_price')  }}">
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <label for="swap_fee" class="col-xs-12 col-form-label">Token Swap Fee (%)</label>
+                        <div class="col-xs-10" style="padding: 0px 10px">
+                            <input class="form-control" type="number" name="swap_fee" required id="swap_fee" placeholder="Token Swap Fee (%)" value="{{ Setting::get('swap_fee')  }}">
                         </div>
                     </div>
 

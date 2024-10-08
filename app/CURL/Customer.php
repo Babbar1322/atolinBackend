@@ -19,52 +19,41 @@ class Customer
             return ['status' => false, 'response' => $response->json()];
         }
     }
-    public static function createCustomer(User $user)
+    public static function createCustomer()
     {
         $data = [
-            'externalId' => $user->id,
-            'type' => 'INDIVIDUAL',
-            'individual' => [
-                'firstName' => $user->name,
-                'lastName' => $user->lastname,
-                'email' => $user->email,
-            ],
-            'linkedDocument' => [
-                [
-                    'purpose' => 'IDENTIFICATION_PROOF',
-                    'document' => [
-                        'type' => 'PASSPORT',
-                        'name' => 'filename.png',
-                        'base64encodedContent' => 'data'
-                    ]
-                ]
-            ]
+            'type' => 'individual',
         ];
+        $token = Auth::getToken('customers', 'execute');
+        if ($token['status'] == false) {
+            return $token;
+        }
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->post('https://api.sandbox.prioritypassport.com/v1/customer', $data);
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->post('https://bank.sandbox.cybrid.app/api/customers', $data);
         // \Log::info($response);
         return self::returnData($response);
     }
 
     public static function getCustomer($id)
     {
+        $token = Auth::getToken('customers', 'read');
+        if ($token['status'] == false) {
+            return $token;
+        }
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->get("https://api.sandbox.prioritypassport.com/v1/customer/externalId/{$id}");
-        // \Log::info($response);
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get("https://bank.sandbox.cybrid.app/api/customers/{$id}");
         return self::returnData($response);
     }
 
-    public static function deleteCustomer($id)
-    {
-        $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->delete("https://api.sandbox.prioritypassport.com/v1/customer/id/{$id}");
+    // public static function deleteCustomer($id)
+    // {
+    //     $response = Http::withHeaders([
+    //         'PromiseMode' => 'NEVER',
+    //         'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
+    //     ])->delete("https://api.sandbox.prioritypassport.com/v1/customer/id/{$id}");
 
-        return self::returnData($response);
-    }
+    //     return self::returnData($response);
+    // }
 }

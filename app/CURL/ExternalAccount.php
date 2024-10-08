@@ -14,8 +14,8 @@ class ExternalAccount
             return ['status' => true, 'response' => $response->json()];
         }
         if ($response->failed()) {
-            if (!empty($response->json()['errorMessage'])) {
-                return ['status' => false, 'response' => $response->json()['errorMessage']];
+            if (!empty($response->json()['error_message'])) {
+                return ['status' => false, 'response' => $response->json()['error_message']];
             }
             return ['status' => false, 'response' => $response->json()];
         }
@@ -27,39 +27,23 @@ class ExternalAccount
      * @param object $account
      * @return array
      */
-    public static function addExternalAccount($user_id, $account)
+    public static function addExternalAccount($user_id, $account_id, $token)
     {
         $data = [
-            'externalId' => $account->account_number,
-            'holderType' => 'CONSUMER',
-            'type' => $account->account_type,
-            'wireRoutingNumber' => $account->wire_routing,
-            'linkedDocument' => [
-                [
-                    'purpose' => 'AUTHORIZATION',
-                    'document' => [
-                        'type' => 'ATD',
-                        'name' => 'file.png',
-                        'base64encodedContent' => 'data'
-                    ]
-                ]
-            ],
-            'validateAccount' => [
-                [
-                    'ews' => true
-                ]
-            ],
-            'accountNumber' => $account->account_number,
-            'purpose' => 'Transaction',
-            'routingNumber' => $account->routing_number,
-            'holderName' => $account->holder_name,
-            'microDeposit' => 'NEVER',
-            'prenote' => 'ON_FAILURE',
+            "account_kind" => "plaid",
+            "name" => "Atolin",
+            "customer_guid" => $user_id,
+            "asset" => "USD",
+            "plaid_account_id" => $account_id,
+            "plaid_public_token" => $token,
         ];
+        $token = Auth::getToken('external_bank_accounts', 'execute');
+        if ($token['status'] == false) {
+            return $token;
+        }
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->post("https://api.sandbox.prioritypassport.com/v1/customer/id/{$user_id}/externalAccount", $data);
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->post("https://bank.sandbox.cybrid.app/api/external_bank_accounts", $data);
         // \Log::info($response);
 
         return self::returnData($response);
@@ -84,16 +68,18 @@ class ExternalAccount
 
     /**
      * Get External account by user_id and account id
-     * @param int $user_id
      * @param int $account_id
      * @return array
      */
-    public static function getAccountById($user_id, $account_id)
+    public static function getAccountById($account_id)
     {
+        $token = Auth::getToken('external_bank_accounts', 'read');
+        if ($token['status'] == false) {
+            return $token;
+        }
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->get("https://api.sandbox.prioritypassport.com/v1/customer/id/{$user_id}/externalAccount/id/{$account_id}");
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get("https://bank.sandbox.cybrid.app/api/external_bank_accounts/{$account_id}");
         // \Log::info($response->body());
 
         return self::returnData($response);
@@ -106,26 +92,31 @@ class ExternalAccount
      */
     public static function getAllAccounts($user_id)
     {
+        $token = Auth::getToken('external_bank_accounts', 'read');
+        if ($token['status'] == false) {
+            return $token;
+        }
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->get("https://api.sandbox.prioritypassport.com/v1/customer/id/{$user_id}/externalAccount");
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get("https://bank.sandbox.cybrid.app/api/external_bank_accounts?customer_guid=$user_id");
 
         return self::returnData($response);
     }
 
     /**
      * Delete External Account from User
-     * @param int $user_id
      * @param int $account_id
      * @return array
      */
-    public static function deleteAccount($user_id, $account_id)
+    public static function deleteAccount($account_id)
     {
+        $token = Auth::getToken('external_bank_accounts', 'execute');
+        if ($token['status'] == false) {
+            return $token;
+        }
         $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->delete("https://api.sandbox.prioritypassport.com/v1/customer/id/{$user_id}/externalAccount/id/{$account_id}");
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->delete("https://bank.sandbox.cybrid.app/api/external_bank_accounts/{$account_id}");
 
         return self::returnData($response);
     }
@@ -152,6 +143,21 @@ class ExternalAccount
             'PromiseMode' => 'NEVER',
             'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
         ])->post("https://api.sandbox.prioritypassport.com/v1/customer/id/{$user_id}/externalAccount/id/{$account_id}/verify", $data);
+
+        return self::returnData($response);
+    }
+
+    public static function refreshAccount($account_id)
+    {
+        $token = Auth::getToken('external_bank_accounts', 'execute');
+        if ($token['status'] == false) {
+            return $token;
+        }
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->patch("https://bank.sandbox.cybrid.app/api/external_bank_accounts/{$account_id}", [
+            "status" => "completed"
+        ]);
 
         return self::returnData($response);
     }

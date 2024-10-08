@@ -129,13 +129,16 @@ Route::group(['middleware' => 'checkApp'], function () {
         Route::post('withdraw', [StripePaymentController::class, 'withdraw'])->name('withdraw.post');
 
         //Add Bank to user account
+        Route::get("getToken", [StripePaymentController::class, 'getToken']);
         Route::post('addbank', [StripePaymentController::class, 'addBanktoUserAccount'])->name('addbank.post');
         Route::post('verifybank', [StripePaymentController::class, 'verifyUserBank'])->name('verifybank.post');
+        Route::post('refreshbank', [StripePaymentController::class, 'refreshBankAccount'])->name('refreshbank.post');
         // Delete Bank Account
         Route::post('deletebank', [StripePaymentController::class, 'deleteBanktoUserAccount'])->name('deletebank.post');
         // List All user banks
         Route::post('listallbanks', [StripePaymentController::class, 'listAllAccountsOfUser'])->name('listallcard.post');
         //Verify Bank Account
+        Route::post('submit-verification', [StripePaymentController::class, 'submitVerification'])->name('submit-verification.post');
         // Route::post('verifybank', [StripePaymentController::class, 'verifyBankAccount'])->name('verifybank.post');
 
         // List All payment methods
@@ -176,7 +179,7 @@ Route::group(['middleware' => 'checkApp'], function () {
         Route::post('crypto-balance-by-address', [ApiController::class, 'getBalanceByAddress']);
         // Route::post('send-bnb', [ApiController::class, 'sendBNB']);
         // Route::post('send-token', [ApiController::class, 'sendToken']);
-        Route::post('transfer', [ApiController::class, 'transferCrypto']);
+        Route::post('transferCrypto', [ApiController::class, 'transferCrypto']);
         Route::get('crypto-history', [ApiController::class, 'transactionHistory']);
         Route::post('check-address', [ApiController::class, 'checkAddress']);
         Route::post('swap-token', [ApiController::class, 'swapToken']);
@@ -198,3 +201,4 @@ Route::group(['middleware' => 'checkApp'], function () {
 });
 
 Route::any('transactionUpdate', [StripePaymentController::class, 'transactionUpdate'])->name('transactionUpdate');
+Route::post('netsuite', [PaymentInvoiceController::class, 'netsuiteInvoice'])->name('netsuite');

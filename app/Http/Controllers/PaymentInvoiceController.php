@@ -257,4 +257,148 @@ class PaymentInvoiceController extends Controller
                 return ["status" => false, "data" => $response->json()];
             }
     }
+
+    public function netsuiteInvoice(Request $request) {
+        $request->validate([
+            'email' => 'required|email',
+            'amount' => 'required|numeric',
+            'category' => 'required',
+            'date' => 'required',
+            'netsuiteUrl' => 'required',
+            'realm' => 'required',
+            'consumerKey' => 'required',
+            'consumerSecret' => 'required',
+            'accessToken' => 'required',
+            'tokenSecret' => 'required',
+        ], [
+            'netsuiteUrl.required' => 'NetSuite URL is Required',
+            'realm.required' => 'Realm is Required',
+            'consumerKey.required' => 'Consumer Key is Required',
+            'consumerSecret.required' => 'Consumer Secret is Required',
+            'accessToken.required' => 'Access Token is Required',
+            'tokenSecret.required' => 'Token Secret is Required',
+        ]);
+        $url = self::extractUrlParts($request->netsuiteUrl);
+        if (!defined('NETSUITE_DEPLOYMENT_URL')) {
+            define("NETSUITE_DEPLOYMENT_URL", $request->netsuiteUrl);
+        }
+        if (!defined('NETSUITE_URL')) {
+            define("NETSUITE_URL", $url['baseUrl']);
+        }
+        if (!defined('NETSUITE_REST_URL')) {
+            define("NETSUITE_REST_URL", $url['fullPath']);
+        }
+        if (!defined('NETSUITE_SCRIPT_ID')) {
+            define("NETSUITE_SCRIPT_ID", $url['scriptId']);
+        }
+        if (!defined('NETSUITE_DEPLOY_ID')) {
+            define("NETSUITE_DEPLOY_ID", $url['deployId']);
+        }
+        if (!defined('NETSUITE_ACCOUNT')) {
+            define("NETSUITE_ACCOUNT", $request->realm);
+        }
+        if (!defined('NETSUITE_CONSUMER_KEY')) {
+            define("NETSUITE_CONSUMER_KEY", $request->consumerKey);
+        }
+        if (!defined('NETSUITE_CONSUMER_SECRET')) {
+            define("NETSUITE_CONSUMER_SECRET", $request->consumerSecret);
+        }
+        if (!defined('NETSUITE_TOKEN_ID')) {
+            define("NETSUITE_TOKEN_ID", $request->accessToken);
+        }
+        if (!defined('NETSUITE_TOKEN_SECRET')) {
+            define("NETSUITE_TOKEN_SECRET", $request->tokenSecret);
+        }
+
+        $payload = array(
+            "email" => $request->email,
+            "amount" => $request->amount,
+            "category" => $request->category,
+            "date" => $request->date,
+        );
+
+        $oauth_nonce = md5(mt_rand());
+        $oauth_timestamp = time();
+        $oauth_signature_method = 'HMAC-SHA256';
+        $oauth_version = "1.0";
+
+        $base_string =
+            "POST&" . urlencode(NETSUITE_REST_URL) . "&" .
+            urlencode(
+                "deploy=" . NETSUITE_DEPLOY_ID
+                    . "&oauth_consumer_key=" . NETSUITE_CONSUMER_KEY
+                    . "&oauth_nonce=" . $oauth_nonce
+                    . "&oauth_signature_method=" . $oauth_signature_method
+                    . "&oauth_timestamp=" . $oauth_timestamp
+                    . "&oauth_token=" . NETSUITE_TOKEN_ID
+                    . "&oauth_version=" . $oauth_version
+                    . "&script=" . NETSUITE_SCRIPT_ID
+            );
+
+        $key = rawurlencode(NETSUITE_CONSUMER_SECRET) . '&' . rawurlencode(NETSUITE_TOKEN_SECRET);
+        $signature = base64_encode(hash_hmac("sha256", $base_string, $key, true));
+        $auth_header = 'OAuth '
+            . 'realm="' . rawurlencode(NETSUITE_ACCOUNT) . '",'
+            . 'oauth_consumer_key="' . rawurlencode(NETSUITE_CONSUMER_KEY) . '",'
+            . 'oauth_token="' . rawurlencode(NETSUITE_TOKEN_ID) . '",'
+            . 'oauth_signature_method="' . rawurlencode($oauth_signature_method) . '",'
+            . 'oauth_timestamp="' . rawurlencode($oauth_timestamp) . '",'
+            . 'oauth_nonce="' . rawurlencode($oauth_nonce) . '",'
+            . 'oauth_version="' . rawurlencode($oauth_version) . '",'
+            . 'oauth_signature="' . rawurlencode($signature) . '"';
+
+        $response = Http::withHeaders([
+            "Authorization" => $auth_header,
+            "Content-Type" => "application/json"
+        ])->post(NETSUITE_DEPLOYMENT_URL, $payload);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            if (!$data['success']) {
+                Log::error("NetSuite Error Start " . date('d-m-y h:i:s'));
+                Log::error(json_encode($data));
+                Log::error("NetSuite Error End");
+                return ["status" => false, "data" => $data];
+            }
+            return ["status" => true, "data" => $response->json()];
+        }
+
+        if ($response->failed()) {
+            Log::error("NetSuite Error Start " . date('d-m-y h:i:s'));
+            Log::error(json_encode($response->json()));
+            Log::error("NetSuite Error End");
+            return ["status" => false, "data" => $response->json()];
+        }
+    }
+
+    private static function extractUrlParts($url) {
+        if (empty($url)) {
+            return;
+        }
+        // Parse the URL and its components
+        $parsedUrl = parse_url($url);
+
+        // Extract the base URL (scheme + host)
+        $baseUrl = $parsedUrl['scheme'] . '://' . $parsedUrl['host'];
+
+        // Extract the full path
+        $fullPath = $baseUrl . $parsedUrl['path'];
+
+        // Extract the script and deploy id from query string
+        parse_str($parsedUrl['query'], $queryParams);
+        $scriptId = isset($queryParams['script']) ? $queryParams['script'] : null;
+        $deployId = isset($queryParams['deploy']) ? $queryParams['deploy'] : null;
+
+        // Extract the account id from the host
+        preg_match('/(\d+-\w+)/', $parsedUrl['host'], $matches);
+        $accountId = isset($matches[1]) ? str_replace('-', '_', strtoupper($matches[1])) : null;
+
+        return [
+            'baseUrl' => $baseUrl,
+            'fullPath' => $fullPath,
+            'scriptId' => $scriptId,
+            'deployId' => $deployId,
+            'accountId' => $accountId
+        ];
+    }
 }

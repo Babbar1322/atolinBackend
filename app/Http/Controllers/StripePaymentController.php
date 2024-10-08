@@ -4,10 +4,13 @@
 
 namespace App\Http\Controllers;
 
+use App\CURL\Account;
 use App\CURL\Customer;
 use App\CURL\Card;
 use App\CURL\ExternalAccount;
+use App\CURL\KYC;
 use App\CURL\Transaction;
+use App\CURL\Workflow;
 use App\Models\Country;
 use App\Models\UserTransactionDetails;
 use App\Models\UserStripeTransaction;
@@ -32,7 +35,6 @@ use Log;
 use Setting;
 
 class StripePaymentController extends Controller
-
 {
     public function __construct()
     {
@@ -259,11 +261,11 @@ class StripePaymentController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'card_id'=> 'required',
+                'card_id' => 'required',
             ]);
 
             if ($validator->fails()) {
-                return response()->json(['success' => false, 'error'=> $validator->errors()],422);
+                return response()->json(['success' => false, 'error' => $validator->errors()], 422);
             }
             //Delete card to customer
             Card::deleteCard(Auth::user()->id, $request->card_id);
@@ -356,10 +358,8 @@ class StripePaymentController extends Controller
     public function addBanktoUserAccount(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'account_type' => 'required|in:SAVINGS,CHECKING',
-            'routing_number' => 'required',
-            'account_number' => 'required',
-            'holder_name' => 'required',
+            'account_id' => 'required',
+            'token' => 'required',
         ]);
 
         if ($validator->fails()) {
@@ -368,15 +368,15 @@ class StripePaymentController extends Controller
         $user = Auth::user();
         // \Log::info($user);
         try {
-            $res = ExternalAccount::addExternalAccount($user->priority_id, $request);
+            $userKYC = KYC::getVerifiedByUser($user->priority_id);
+            if ($userKYC['status'] && $userKYC['response']['total'] === 0) {
+                return response()->json(['error' => 'User KYC not verified.'], 400);
+            }
+            $res = ExternalAccount::addExternalAccount($user->priority_id, $request->account_id, $request->token);
             if (!$res['status']) {
-                return response()->json(['error'=> $res['response']], 422);
+                return response()->json(['error' => $res['response']], 422);
             }
-
-            $bankAccount = ExternalAccount::getAccount($user->id, $request->account_number);
-            if (!$bankAccount['status']) {
-                return response()->json(['error'=> $res['response']], 422);
-            }
+            KYC::verifyBankAccount($user->priority_id, $res['response']['guid']);
 
             return response()->json(['message' => 'Bank added Successfully.'], 200);
         } catch (Exception $e) {
@@ -498,14 +498,14 @@ class StripePaymentController extends Controller
             ]);
 
             if ($validator->fails()) {
-                return response()->json(['error'=> $validator->errors()],422);
+                return response()->json(['error' => $validator->errors()], 422);
             }
 
             $user = Auth::user();
             //Delete bank to customer
-            $res = ExternalAccount::deleteAccount($user->priority_id, $request->account_id);
+            $res = ExternalAccount::deleteAccount($request->account_id);
             if (!$res['status']) {
-                return response()->json(['error'=> $res['response']], 422);
+                return response()->json(['error' => $res['response']], 422);
             }
 
             return response()->json(['message' => 'Bank deleted Successfully.'], 200);
@@ -550,13 +550,13 @@ class StripePaymentController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'amount_1'=> 'required|numeric|lt:1|gt:0',
-                'amount_2'=> 'required|numeric|lt:1|gt:0',
-                'account_id'=> 'required',
+                'amount_1' => 'required|numeric|lt:1|gt:0',
+                'amount_2' => 'required|numeric|lt:1|gt:0',
+                'account_id' => 'required',
             ]);
 
             if ($validator->fails()) {
-                return response()->json(['error'=> $validator->errors()],422);
+                return response()->json(['error' => $validator->errors()], 422);
             }
 
             $user = Auth::user();
@@ -564,12 +564,34 @@ class StripePaymentController extends Controller
             $res = ExternalAccount::verifyAccount($user->priority_id, $request->account_id, $request->amount_1, $request->amount_2);
 
             if (!$res['status']) {
-                return response()->json(['error'=> $res['response']], 400);
+                return response()->json(['error' => $res['response']], 400);
             }
 
             return response()->json(['message' => 'Request Submitted'], 200);
         } catch (\Throwable $th) {
-            return response()->json(['error'=> $th], 400);
+            return response()->json(['error' => $th], 400);
+        }
+    }
+
+    public function refreshBankAccount(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'account_id' => 'required',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['error' => $validator->errors()], 422);
+            }
+
+            $response = ExternalAccount::refreshAccount($request->account_id);
+            if (!$response['status']) {
+                return response()->json(['error' => $response['response']], 422);
+            }
+
+            return response()->json(['message' => 'Request Submitted'], 200);
+        } catch (Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
         }
     }
 
@@ -584,7 +606,26 @@ class StripePaymentController extends Controller
             $user = User::find(Auth::user()->id);
             $ListallBanks = ExternalAccount::getAllAccounts($user->priority_id);
             if (!$ListallBanks['status']) {
-                return response()->json(['error'=> $ListallBanks['response']], 422);
+                return response()->json(['error' => $ListallBanks['response']], 422);
+            }
+            foreach ($ListallBanks['response']['objects'] as &$bank) {
+                if ($bank['state'] === 'refresh_required') {
+                    $token = Workflow::getUpdateToken($user->priority_id, $bank['guid']);
+                    if (!$token['status']) {
+                        return response()->json(['error' => $token['response']], 422);
+                    }
+
+                    $workflow = Workflow::getOne($token['response']['guid']);
+                    if (!$workflow['status']) {
+                        return response()->json(['error' => $workflow['response']], 422);
+                    }
+                    $workflow = $workflow['response'];
+                    if (empty($workflow['plaid_link_token'])) {
+                        $workflow = Workflow::getOne(Workflow::getByCustomer($user->priority_id)['response']['objects'][0]['guid']);
+                    }
+                    // Update the refresh token in the original array
+                    $bank['refresh_token'] = $workflow['plaid_link_token'];
+                }
             }
 
             return response()->json(['message' => 'Accounts Listed Successfully.', 'data' => $ListallBanks['response']], 200);
@@ -611,6 +652,57 @@ class StripePaymentController extends Controller
     //         return response()->json(['error' => $e->getMessage()], 401);
     //     }
     // }
+
+    public function submitVerification(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'account_id' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 422);
+        }
+
+        $user = Auth::user();
+
+        $res = KYC::verifyBankAccount($user->priority_id, $request->account_id);
+
+        if (!$res['status']) {
+            return response()->json(['error' => $res['response']], 422);
+        }
+
+        return response()->json(['message' => 'Request Submitted'], 200);
+    }
+
+    public function getToken(Request $request)
+    {
+        $userKYC = KYC::getVerifiedByUser($request->user()->priority_id);
+        if ($userKYC['status'] && $userKYC['response']['total'] === 0) {
+            return response()->json(['error' => 'User KYC not verified.'], 400);
+        }
+        // $doesWorkflowExist = Workflow::getByCustomer($request->user()->priority_id);
+        // $renew = $request->query('renew') == 'true' ? true : false;
+        // if ($doesWorkflowExist['status'] && count($doesWorkflowExist['response']['objects']) > 0 && !$renew) {
+        //     $existingToken = Workflow::getOne($doesWorkflowExist['response']['objects'][0]['guid']);
+        //     return response()->json(['success' => true, 'message' => 'Token Already Exists.', 'data' => $existingToken['response']], 200);
+        // }
+        $workflow = Workflow::createWorkflow($request->user()->priority_id);
+        if ($workflow['status']) {
+            $token = Workflow::getOne($workflow['response']['guid']);
+            if ($token['status']) {
+                if (!empty($token['response']['plaid_link_token'])) {
+                    return response()->json(['success' => true, 'message' => 'Token Generated Successfully.', 'data' => $token['response']], 200);
+                }
+                $existing = Workflow::getByCustomer($request->user()->priority_id);
+                if ($existing['status']) {
+                    $existingToken = Workflow::getOne($existing['response']['objects'][0]);
+                    return response()->json(['success' => true, 'message' => 'Token Generated Successfully.', 'data' => $existingToken['respones']]);
+                }
+            }
+            return response()->json(['error' => $token['response']], 400);
+        }
+        return response()->json(['error' => $workflow['response']], 400);
+    }
 
     public function listPaymentMethods(Request $request)
     {
@@ -867,11 +959,11 @@ class StripePaymentController extends Controller
 
             Stripe\Stripe::setApiKey(env('STRIPE_SECRET'));
 
-            $walletAmount =   Stripe\Balance::retrieve();
+            $walletAmount = Stripe\Balance::retrieve();
 
             return response()->json(['total_amount' => $walletAmount], 200);
         } catch (\Cartalyst\Stripe\Exception\MissingParameterException $e) {
-            $response =  \Session::put('error', $e->getMessage());
+            $response = \Session::put('error', $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 401);
         }
     }
@@ -885,33 +977,35 @@ class StripePaymentController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'amount'=> 'required',
-                'source'=> 'required',
-                'currency'=> 'required',
+                'amount' => 'required',
+                'source' => 'required',
+                'currency' => 'required',
                 'type' => 'required',
             ]);
             if ($validator->fails()) {
-                return response()->json(['error' => $validator->errors()],422);
+                return response()->json(['error' => $validator->errors()], 422);
             }
             $user = Auth::user();
 
             $amount = $request->amount;
             $deposit_fee = Setting::get($request->type === 'ACH' ? 'bank_fee' : 'card_fee');
-            if (!empty($deposit_fee)) {
-                $amount = $request->amount + ($deposit_fee / 100 * $request->amount);
+            // if (!empty($deposit_fee)) {
+            //     $amount = $request->amount + ($deposit_fee / 100 * $request->amount);
+            // }
+
+            $userAccount = Account::getByUser(Auth::user()->priority_id);
+            $destAccount = '';
+            if ($userAccount['status'] && $userAccount['response']['total'] > 0) {
+                $destAccount = $userAccount['response']['objects'][0]['guid'];
             }
+            // return response()->json(["error" => $destAccount], 422);
 
-            $transactionId = time() . $user->id;
-
-            $transaction = Transaction::collectToMainAccount($amount, $request->source, $transactionId, $request->type);
+            $transaction = Transaction::collectToMainAccount($amount, $user->priority_id, $request->source, $deposit_fee, $destAccount);
             if (!$transaction['status']) {
-                return response()->json(['error'=> $transaction['response']],422);
+                return response()->json(['error' => $transaction['response']], 422);
             }
 
-            $userTransaction = Transaction::getTransaction($transactionId);
-            if (!$userTransaction['status']) {
-                return response()->json(['error'=> $userTransaction['response']],422);
-            }
+            $userTransaction = $transaction['response'];
 
             PaymentLog::create([
                 'user_id' => $user->id,
@@ -919,25 +1013,25 @@ class StripePaymentController extends Controller
             ]);
 
             if ($transaction['status']) {
-                PaymentLog::create([
-                    'user_id' => $user->id,
-                    'response' => json_encode($userTransaction['response']),
-                    'payment_id' => $userTransaction['response']['id']
-                ]);
+                // PaymentLog::create([
+                //     'user_id' => $user->id,
+                //     'response' => json_encode($userTransaction),
+                //     'payment_id' => $userTransaction['guid']
+                // ]);
 
                 UserStripeTransaction::create([
-                    'stripe_tid' => $userTransaction['response']['id'],
+                    'stripe_tid' => $userTransaction['guid'],
                     'stripe_uid' => $user->priority_id,
                     'card_id' => $request->source,
-                    'amount' => $userTransaction['response']['amount'],
+                    'amount' => $userTransaction['amount'] / 100,
                     'currency' => $request->currency,
-                    't_type' => $userTransaction['response']['method'],
+                    't_type' => 'debit',
                     'request_at' => new \DateTime(),
                     'created_at' => new \DateTime()
                 ]);
 
                 UserTransactionDetails::create([
-                    'transaction_id' => $userTransaction['response']['id'],
+                    'transaction_id' => $userTransaction['guid'],
                     'user_id' => $user->id,
                     'source_id' => $request->source,
                     'receiver_id' => $user->id,
@@ -1063,10 +1157,39 @@ class StripePaymentController extends Controller
     //         return response()->json(['success' => false, 'message' => $e], 400);
     //     }
     // }
-    public function transactionUpdate(Request $request){
-        Log::info('webhook log start');
-        Log::info($request);
-        Log::info('webhook log end');
+    public function transactionUpdate(Request $request)
+    {
+        if (!empty($request->guid)) {
+            $type = explode('.', $request->event_type);
+            $event_type = $type[0];
+            $event_status = $type[1];
+
+            if ($event_type == 'identity_verification') {
+                if ($event_status == 'completed') {
+                    $kyc = KYC::getKYC($request->object_guid);
+                    if ($kyc['status'] && $kyc['response']['outcome'] === 'passed') {
+                        $customer_id = $kyc['response']['customer_guid'];
+                        // $user = User::where('priority_id', $customer_id)->first();
+                        Account::create($customer_id);
+                    }
+                }
+            }
+            if ($event_type == 'transfer') {
+                $transaction_id = $request->object_guid;
+                $transaction = UserTransactionDetails::where('transaction_id', $transaction_id)->first();
+                if ($event_status == 'completed') {
+                    if ($transaction) {
+                        $transaction->transaction_status = 'success';
+                        $transaction->save();
+                    }
+                } else if ($event_status == 'failed') {
+                    if ($transaction) {
+                        $transaction->transaction_status = 'failed';
+                        $transaction->save();
+                    }
+                }
+            }
+        }
         return response()->json(true);
     }
 }

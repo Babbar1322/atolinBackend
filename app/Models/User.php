@@ -31,7 +31,7 @@ class User extends Authenticatable
         'lastname',
         'contact',
         'kyc_type',
-        'kyc_number',
+        'kyc_id',
         'expiry_date',
         'issuing_country',
         'status',

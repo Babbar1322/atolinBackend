@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\CURL\Account;
 use App\CURL\Customer;
+use App\CURL\KYC;
+use App\CURL\Transaction;
 use App\Encryption\Encryption;
 use App\Models\CryptoTransaction;
 use App\Models\CryptoWallet;
@@ -48,7 +51,7 @@ class ApiController extends Controller
     public function transfer(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'contact' => 'required',
+            'contact' => 'required|exists:users,contact',
             'amount' => 'required',
         ]);
         if ($validator->fails()) {
@@ -56,22 +59,45 @@ class ApiController extends Controller
         }
 
         $user = Auth::user();
-        if ($user == null) {
-            return response()->json(["error" => 'Invalid LoggedIn User'], 422);
-        }
         $balance = $this->Balance($user->id);
         if ($request->amount == 0 || $request->amount > $balance) {
             return response()->json(["error" => 'Not enough Balance'], 422);
         }
 
-        $reciever  = User::where("contact", $request->contact)->first();
-
+        $reciever = User::where("contact", $request->contact)->first();
 
         if ($reciever == null || $user->id == $reciever->id) {
-            return response()->json(["error" => 'Invalid contact number '], 422);
+            return response()->json(["error" => 'Invalid contact number'], 422);
         }
 
+        if (!$reciever->priority_id) {
+            return response()->json(['error'=> 'User not registered on Platform'], 422);
+        }
+        $reciever_kyc = KYC::getVerifiedByUser($reciever->priority_id);
+
+        if ($reciever_kyc['status'] && $reciever_kyc['response']['total'] === 0) {
+            return response()->json(['error' => 'User KYC not verified.'], 400);
+        }
+
+        // $reciever_account =
+        // $senderAccount = Account::getByUser($user->priority_id);
+        // if (!$senderAccount['status']) {
+        //     return response()->json(['error'=> 'You don\'t have Account on Platform'], 400);
+        // }
+        // $recieverAccount = Account::getByUser($reciever->priority_id);
+        // if (! $recieverAccount['status']) {
+        //     return response()->json(['error'=> 'Reciever do\'t have Account on Platform'], 400);
+        // }
+        // $sendFrom = $senderAccount['response']['objects'][0]['guid'];
+        // $recieveTo = $recieverAccount['response']['objects'][0]['guid'];
+        // $transaction = Transaction::sendUserToUser($request->amount * 100, $sendFrom, $recieveTo);
+
+        // if (!$transaction['status']) {
+        //     return response()->json(['error'=> 'Transaction Failed'], 400);
+        // }
+
         $send = new UserTransactionDetails();
+        // $send->transaction_id = $transaction['response']['guid'];
         $send->t_type = "debit";
         $send->user_id = $user->id;
         $send->receiver_id = $reciever->id;
@@ -80,6 +106,7 @@ class ApiController extends Controller
         $send->save();
 
         $recieve = new UserTransactionDetails();
+        // $recieve->transaction_id = $transaction['response']['guid'];
         $recieve->t_type = "credit";
         $recieve->user_id = $reciever->id;
         $recieve->receiver_id = $reciever->id;
@@ -258,6 +285,7 @@ class ApiController extends Controller
         if ($balance->successful()) {
             $data = $balance->json();
             $data['token']['price'] = Setting::get('token_price');
+            $data['token']['fees'] = Setting::get('swap_fee');
 
             return response()->json(['message' => 'Balance Get Successfully', 'balance' => $data], 200);
         }
@@ -592,31 +620,61 @@ class ApiController extends Controller
             return response()->json(['error' => 'No Wallet is Connected to this user'], 422);
         }
 
+        $tokenFee = Setting::get('swap_fee');
+
         $walletPrivate = '';
         $reciever = '';
         $tokenAmount = 0;
         $atolinAmount = 0;
         $transaction_type = '';
+        $transaction_id = '';
         if ($request->from === 'atolin-wallet') {
             $walletPrivate = Encryption::decrypt(Setting::get('wallet_private'));
             $reciever = Encryption::decrypt($wallet->wallet_address);
             $transaction_type = 'debit';
             $tokenPrice = Setting::get('token_price');
-            $tokenAmount = $request->amount / $tokenPrice;
+            $rawTokenAmount = $request->amount / $tokenPrice;
+            $tokenAmount = $rawTokenAmount * (1 - $tokenFee / 100);
             $atolinAmount = $request->amount;
             if ($atolinAmount > $this->Balance(Auth::user()->id)) {
                 return response()->json([
                     'error' => 'Insufficiant Wallet Balance',
                 ], 400);
             }
+            $userAccount = Account::getByUser(Auth::user()->priority_id);
+            if (!$userAccount['status']) {
+                return response()->json([
+                    'error'=> 'You don\'t have account on Platform',
+                    ], 400);
+            }
+            $accountId = $userAccount['response']['objects'][0]['guid'];
+            $cybridTransaction = Transaction::sendUserToUser($atolinAmount  * 100, $accountId, env('CYBRID_MAIN_ACCOUNT'));
+            if (!$cybridTransaction['status']) {
+                return response()->json(['error' => $cybridTransaction['response']], 400);
+            }
+            $transaction_id = $cybridTransaction['response']['guid'];
         } else {
             $walletPrivate = Encryption::decrypt($wallet->private_key);
             $reciever = Encryption::decrypt(Setting::get('wallet_address'));
             $transaction_type = 'credit';
             $tokenPrice = Setting::get('token_price');
             $tokenAmount = $request->amount;
-            $finalPrice = $tokenAmount * $tokenPrice;
+            // $tokenAmount = ($rawTokenAmount * $tokenFee) / 100;
+            $netTokenAmount = $tokenAmount * (1 - $tokenFee / 100);
+            $finalPrice = $netTokenAmount * $tokenPrice;
             $atolinAmount = $finalPrice;
+            $userAccount = Account::getByUser(Auth::user()->priority_id);
+            if (!$userAccount['status']) {
+                return response()->json([
+                    'error'=> 'You don\'t have account on Platform',
+                    ], 400);
+            }
+            $accountId = $userAccount['response']['objects'][0]['guid'];
+            $cybridTransaction = Transaction::sendUserToUser($atolinAmount * 100, env('CYBRID_MAIN_ACCOUNT'), $accountId);
+            if (!$cybridTransaction['status']) {
+                return response()->json(['error' => $cybridTransaction['response']], 400);
+            }
+            $transaction_id = $cybridTransaction['response']['guid'];
         }
 
         $transaction = Http::withHeaders([
@@ -649,6 +707,7 @@ class ApiController extends Controller
                 'type' => 'token'
             ]);
             UserTransactionDetails::create([
+                'transaction_id' => $transaction_id,
                 'user_id' => Auth::user()->id,
                 'source_id' => !empty($contractAddress) ? $contractAddress : null,
                 'amount' => $atolinAmount,

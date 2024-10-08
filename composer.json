@@ -32,7 +32,8 @@
         "mockery/mockery": "^1.4.2",
         "nunomaduro/collision": "^5.0",
         "phpstan/phpstan": "^1.10",
-        "phpunit/phpunit": "^9.3.3"
+        "phpunit/phpunit": "^9.3.3",
+        "vimeo/psalm": "^6.0@dev"
     },
     "config": {
         "optimize-autoloader": true,

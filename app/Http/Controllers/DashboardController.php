@@ -81,7 +81,7 @@ class DashboardController extends Controller
     {
         $withdraw = WithdrawalRequest::find($request->id);
         $user = User::findOrFail($withdraw->user_id);
-        $bank = ExternalAccount::getAccountById($user->priority_id, $withdraw->bank_id);
+        $bank = ExternalAccount::getAccountById($withdraw->bank_id);
 
         if (!$withdraw->bank_id || !$bank['status']) {
             return back()->with('flash_error', 'Bank id doesn\'t exist!');
@@ -92,8 +92,7 @@ class DashboardController extends Controller
         //     'currency' => 'USD',
         //     'customer' => $cust_id, // Replace with the customer's Stripe ID
         // ]);
-        $transaction_id = $user->id . time();
-        $payout = Transaction::sendToUser($withdraw->amount, $bank['response']['id'], $transaction_id);
+        $payout = Transaction::sendToUser($withdraw->amount, $user->priority_id, $bank['response']['guid']);
 
         if (!$payout['status']) {
             return back()->with('flash_error', $payout['response']);
@@ -101,14 +100,12 @@ class DashboardController extends Controller
 
         $withdraw->status = 'APPROVED';
         $withdraw->save();
-        // \Log::info($payout);
-        $transaction = Transaction::getTransaction($transaction_id);
 
         $user = User::find($withdraw->user_id);
         UserStripeTransaction::create([
-            'stripe_tid' => $transaction['response']['id'],
+            'stripe_tid' => $payout['response']['guid'],
             'stripe_uid' => $user->priority_id,
-            'card_id' => $bank['response']['id'],
+            'card_id' => $bank['response']['guid'],
             'amount' => $withdraw->net_amount,
             'currency' => 'USD',
             't_type' => 'debit',
@@ -495,10 +492,12 @@ class DashboardController extends Controller
             'token_price' => 'required|numeric',
             'wallet_private' => 'required',
             'wallet_address' => 'required',
+            'swap_fee' => 'required|numeric',
         ]);
 
         Setting::set('token_address', $request->token_address);
         Setting::set('token_price', $request->token_price);
+        Setting::set('swap_fee', $request->swap_fee);
         Setting::set('wallet_private', Encryption::encrypt($request->wallet_private));
         Setting::set('wallet_address', Encryption::encrypt($request->wallet_address));
         Setting::set('token_network', $request->token_network);
