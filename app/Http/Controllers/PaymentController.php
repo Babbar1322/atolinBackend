@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Wallet;
 use Illuminate\Http\Request;
 use Validator;
 use DB;
@@ -81,17 +82,14 @@ class PaymentController extends Controller
             //added to database
             $transaction_id = (@$data['transaction_id']) ? $data['transaction_id'] : uniqid();
             $user_id = $user->id;
-            $source_id = $data['source_id'];
             $amount = $data['amount'];
             $t_type = "credit";
-            $created_at = new \DateTime();
-            UserTransactionDetails::create([
+            Wallet::create([
                 'transaction_id' => $transaction_id,
                 'user_id' => $user_id,
-                'source_id' => $source_id,
                 'amount' => $amount,
                 't_type' => $t_type,
-                'creater_at' => $created_at
+                'type' => 'DEPOSIT',
             ]);
 
 
@@ -250,7 +248,7 @@ class PaymentController extends Controller
         try {
             $user = Auth::user();
             // $transaction_details = UserTransactionDetails::with('receiver')->where('user_id', $user->id)->orderBy('created_at', 'desc')->paginate(10);
-            $transaction_details = UserTransactionDetails::with('receiver')->where('user_id', $user->id)->orWhere('receiver_id', $user->id)->orderBy('created_at', 'desc')->paginate(10);
+            $transaction_details = Wallet::where('user_id', $user->id)->orWhere('receiver_id', $user->id)->orderBy('created_at', 'desc')->paginate(10);
             //added to database
             // $transaction_details = UserTransactionDetails::with('receiver')->groupBy('source_id')->where('user_id', $user->id)->orderBy('created_at', 'desc')->get();
 
@@ -287,8 +285,8 @@ class PaymentController extends Controller
         $userId = Auth::user()->id;
         $receiver = User::where('contact', $request->receiver_contact)->first();
         $receiverId = $receiver->id;
-        $transaction_details = UserTransactionDetails::with('receiver')->where(function ($q) use ($userId, $receiverId) {
-            $q->where('user_id', $userId)->where('receiver_id', $receiverId)->orWhere('user_id', $receiverId)->orWhere('receiver_id', $userId);
+        $transaction_details = Wallet::with(['user', 'from'])->where(function ($q) use ($userId, $receiverId) {
+            $q->where('user_id', $userId)->where('from_id', $receiverId)->orWhere('user_id', $receiverId)->orWhere('from_id', $userId);
         })->orderBy('created_at', 'asc')->paginate(10);
 
         return response()->json([

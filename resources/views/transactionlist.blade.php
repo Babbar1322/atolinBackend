@@ -37,7 +37,7 @@ use App\Models\User;
                   <table class="table table-striped table-bordered first">
                     <thead>
                       <tr>
-                      <th>S.No</th>
+                        <th>S.No</th>
                         <th>Transaction Id</th>
                         <th>User</th>
                         <th>Amount</th>
@@ -51,7 +51,7 @@ use App\Models\User;
                     @foreach ($getAllTransactions as $key => $getAllTransaction)
                       <tr>
                         <td>{{ ++$key  }}</td>
-                        <td>{{ ucfirst($getAllTransaction->transaction_id) }} </td>
+                        <td>{{ ucfirst($getAllTransaction->transaction_id) ?? "-" }} </td>
                         <td>@php $user = User::find($getAllTransaction->user_id, ['email']) @endphp
                         {{ $user->email ?? "" }}</td>
                         <td>$ {!! number_format((float)($getAllTransaction->amount), 2) !!}</td>

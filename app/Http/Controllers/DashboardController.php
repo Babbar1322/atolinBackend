@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\CURL\ExternalAccount;
 use App\CURL\Transaction;
 use App\Encryption\Encryption;
+use App\Models\CryptoTransaction;
+use App\Models\TokenSwap;
+use App\Models\Wallet;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\UserTransactionDetails;
@@ -63,7 +66,12 @@ class DashboardController extends Controller
 
     public static function withdrawrequests()
     {
-        $allwithdrawalrequests = WithdrawalRequest::get();
+        $allwithdrawalrequests = WithdrawalRequest::where("status", "PENDING")->get();
+        return view('withdrawalrequests', compact('allwithdrawalrequests'));
+    }
+    public static function confirmedwithdrawrequests()
+    {
+        $allwithdrawalrequests = WithdrawalRequest::where("status", "!=", "PENDING")->get();
         return view('withdrawalrequests', compact('allwithdrawalrequests'));
     }
 
@@ -228,15 +236,23 @@ class DashboardController extends Controller
             return back()->with('flash_error', 'Try again later');
         }
 
-        UserTransactionDetails::create([
-            'transaction_id' => '',
+        // UserTransactionDetails::create([
+        //     'transaction_id' => '',
+        //     'user_id' => $user->id,
+        //     'source_id' => $withdraw->bank_id,
+        //     'receiver_id' => $user->id,
+        //     'amount' => $withdraw->net_amount,
+        //     't_type' => 'credit',
+        //     'comments' => 'Refund for Withdrawal Request',
+        //     'status' => 'Success'
+        // ]);
+        Wallet::create([
             'user_id' => $user->id,
-            'source_id' => $withdraw->bank_id,
-            'receiver_id' => $user->id,
             'amount' => $withdraw->net_amount,
             't_type' => 'credit',
-            'comments' => 'Refund for Withdrawal Request',
-            'status' => 'Success'
+            'status' => 'APPROVED',
+            'type' => 'REFUND',
+            'remarks' => 'Refund for Withdrawal Request',
         ]);
 
         // $user->balance += $withdraw->net_amount;
@@ -258,7 +274,7 @@ class DashboardController extends Controller
     public static function getTodaytracsactioncount()
     {
 
-        $getTodaytracsactioncount = UserTransactionDetails::whereDate('created_at', Carbon::today())->count();
+        $getTodaytracsactioncount = Wallet::whereDate('created_at', Carbon::today())->count();
 
         return $getTodaytracsactioncount;
     }
@@ -330,7 +346,7 @@ class DashboardController extends Controller
 
     public function usertransactions()
     {
-        $getusersLatestTransactions =  UserTransactionDetails::orderByDesc('id')->get();
+        $getusersLatestTransactions =  Wallet::orderByDesc('id')->get();
         return view('usertransactionhistory', compact('getusersLatestTransactions'));
     }
 
@@ -361,7 +377,7 @@ class DashboardController extends Controller
     public static function getTodayCreditAmount()
     {
 
-        $getTodayCreditAmount = UserTransactionDetails::whereDate('created_at', Carbon::today())->where('t_type', 'credit')->sum('amount');
+        $getTodayCreditAmount = Wallet::whereDate('created_at', Carbon::today())->where('t_type', 'credit')->sum('amount');
 
         return $getTodayCreditAmount;
     }
@@ -369,7 +385,7 @@ class DashboardController extends Controller
     public static function getTodayDebitAmount()
     {
 
-        $getTodayDebitAmount = UserTransactionDetails::whereDate('created_at', Carbon::today())->where('t_type', 'debit')->sum('amount');
+        $getTodayDebitAmount = Wallet::whereDate('created_at', Carbon::today())->where('t_type', 'debit')->sum('amount');
 
         return $getTodayDebitAmount;
     }
@@ -377,7 +393,7 @@ class DashboardController extends Controller
     public static function getTotalTracsactioncount()
     {
 
-        $getTotalTracsactioncount = UserTransactionDetails::count();
+        $getTotalTracsactioncount = Wallet::count();
 
         return $getTotalTracsactioncount;
     }
@@ -393,7 +409,7 @@ class DashboardController extends Controller
     public static function getTotalCreditAmount()
     {
 
-        $getTotalCreditAmount = UserTransactionDetails::where('t_type', 'credit')->sum('amount');
+        $getTotalCreditAmount = Wallet::where('t_type', 'credit')->sum('amount');
 
         return $getTotalCreditAmount;
     }
@@ -401,15 +417,37 @@ class DashboardController extends Controller
     public static function getTotalDebitAmount()
     {
 
-        $getTotalDebitAmount = UserTransactionDetails::where('t_type', 'debit')->sum('amount');
+        $getTotalDebitAmount = Wallet::where('t_type', 'debit')->sum('amount');
 
         return $getTotalDebitAmount;
+    }
+
+    public static function getTotalSwapFee() {
+
+        $fee = TokenSwap::get();
+
+        $getTotalSwapFee = $fee->sum('fee_amount');
+
+        return $getTotalSwapFee;
+    }
+    public static function getTotalGasFee() {
+
+        $fee = CryptoTransaction::where('type', 'gas_fee')->sum('amount');
+
+        return $fee;
+    }
+    public static function getTotalWallet() {
+
+        $credit = Wallet::where('t_type', 'credit')->where('status', 'APPROVED')->sum('amount');
+        $debit = Wallet::where('t_type', 'debit')->where('status', 'APPROVED')->sum('amount');
+
+        return $credit - $debit;
     }
 
     public static function getLatestTransactions()
     {
 
-        $getLatestTransactions = UserTransactionDetails::whereNotIn('t_type', ['request'])->orderByDesc('id')->limit(5)->get();
+        $getLatestTransactions = Wallet::whereNotIn('t_type', ['request'])->orderByDesc('id')->limit(5)->get();
         // dd($amt_perday);
 
         return view('dashboard',  compact('getLatestTransactions'));
@@ -434,11 +472,11 @@ class DashboardController extends Controller
         $country = Country::where('id', $getUserDetails['country_code'])->first();
         $getcountry = $country->name;
         // dd($getUserDetails1);
+        $balance = Wallet::balance($userid);
 
+        $getuserLatestTransactions =  Wallet::orderByDesc('id')->where('user_id', $userid)->get();
 
-        $getuserLatestTransactions =  UserTransactionDetails::orderByDesc('id')->where('user_id', $userid)->get();
-
-        return view('usersdetails',  compact('getUserDetails', 'getuserLatestTransactions', 'getcountry'));
+        return view('usersdetails',  compact('getUserDetails', 'getuserLatestTransactions', 'getcountry', 'balance'));
     }
 
     public static function getKycDetails(Request $request)
@@ -456,7 +494,7 @@ class DashboardController extends Controller
 
         $transactionid = request('id');
 
-        $getUserTransactionDetails = UserTransactionDetails::where('id', $transactionid)->first();
+        $getUserTransactionDetails = Wallet::where('id', $transactionid)->first();
 
 
         return view('transactiondetails',  compact('getUserTransactionDetails'));
@@ -506,10 +544,31 @@ class DashboardController extends Controller
         return back()->with('flash_success', 'Settings updated successfully');
     }
 
+    public function gasFeeHistory() {
+        $history = CryptoTransaction::where('type', 'gas_fee')->get();
+        return view('gas-fee-transaction', compact('history'));
+    }
+
+    public function tokenSwapHistory() {
+        $history = TokenSwap::with('user')->orderByDesc('id')->get();
+        return view('token-swap-history', compact('history'));
+    }
+    public function tokenSwapFeeHistory() {
+        $history = TokenSwap::with('user')->orderByDesc('id')->get();
+        $atolinHistory = TokenSwap::where('from', 'TOKEN')->get();
+        $tokenHistory = TokenSwap::where('from', 'ATOLIN')->get();
+        $totalSwapFee = $atolinHistory->sum('fee_amount');
+        $totalTokenFee = $tokenHistory->sum('fee_amount');
+        return view('token-swap-fee-history', compact('history', 'totalSwapFee', 'totalTokenFee'));
+    }
+    public function tokenSwapDetails(TokenSwap $swap) {
+        return view('swap-details', compact('swap'));
+    }
+
     public static function getAllTransactions()
     {
 
-        $getAllTransactions = UserTransactionDetails::orderByDesc('id')->get();
+        $getAllTransactions = Wallet::orderByDesc('id')->get();
 
         return view('transactionlist',  compact('getAllTransactions'));
     }

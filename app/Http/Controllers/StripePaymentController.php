@@ -18,6 +18,7 @@ use App\Models\UserRefund;
 use App\Models\NotificationUser;
 use App\Models\PaymentLog;
 use App\Models\StripeBankDetails;
+use App\Models\Wallet;
 use Illuminate\Http\Request;
 use Session;
 use Auth;
@@ -988,7 +989,7 @@ class StripePaymentController extends Controller
             $user = Auth::user();
 
             $amount = $request->amount;
-            $deposit_fee = Setting::get($request->type === 'ACH' ? 'bank_fee' : 'card_fee');
+            $deposit_fee = Setting::get('bank_fee');
             // if (!empty($deposit_fee)) {
             //     $amount = $request->amount + ($deposit_fee / 100 * $request->amount);
             // }
@@ -1030,15 +1031,15 @@ class StripePaymentController extends Controller
                     'created_at' => new \DateTime()
                 ]);
 
-                UserTransactionDetails::create([
+                Wallet::create([
                     'transaction_id' => $userTransaction['guid'],
                     'user_id' => $user->id,
-                    'source_id' => $request->source,
-                    'receiver_id' => $user->id,
                     'amount' => $amount,
                     't_type' => 'credit',
-                    'comments' => 'Added From Prioriy',
-                    'status' => 'Pending'
+                    'remarks' => 'Added From Prioriy',
+                    'status' => 'PENDING',
+                    'type' => 'DEPOSIT',
+                    'fee' => $deposit_fee,
                 ]);
 
                 return response()->json([
@@ -1176,15 +1177,15 @@ class StripePaymentController extends Controller
             }
             if ($event_type == 'transfer') {
                 $transaction_id = $request->object_guid;
-                $transaction = UserTransactionDetails::where('transaction_id', $transaction_id)->first();
+                $transaction = Wallet::where('transaction_id', $transaction_id)->first();
                 if ($event_status == 'completed') {
                     if ($transaction) {
-                        $transaction->transaction_status = 'success';
+                        $transaction->status = 'APPROVED';
                         $transaction->save();
                     }
                 } else if ($event_status == 'failed') {
                     if ($transaction) {
-                        $transaction->transaction_status = 'failed';
+                        $transaction->status = 'FAILED';
                         $transaction->save();
                     }
                 }

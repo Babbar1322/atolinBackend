@@ -64,6 +64,18 @@ class KYC
         return self::returnData($response);
     }
 
+    public static function getAllByUser($id)
+    {
+        $token = Auth::getToken('identity_verifications', 'read');
+        if ($token['status'] == false) {
+            return $token;
+        }
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get("https://bank.sandbox.cybrid.app/api/identity_verifications?customer_guid={$id}");
+        return self::returnData($response);
+    }
+
     public static function verifyBankAccount($userId, $account_id)
     {
         $data = [

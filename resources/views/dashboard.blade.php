@@ -1,4 +1,4 @@
-<?php use \App\Http\Controllers\DashboardController; 
+<?php use \App\Http\Controllers\DashboardController;
 use App\Models\User;
 ?>
 
@@ -31,7 +31,7 @@ use App\Models\User;
                   <nav aria-label="breadcrumb">
                     <ol class="breadcrumb">
                       <li class="breadcrumb-item"><a href="/dashboard" class="breadcrumb-link">Dashboard</a></li>
-                      
+
                     </ol>
                   </nav>
                 </div>
@@ -206,13 +206,52 @@ use App\Models\User;
                 </div>
               </div>
             </div>
+            <div class="col-xl-3 col-lg-6 col-md-6 col-sm-12 col-12">
+              <div class="card mb-5 shadow-sm">
+                <div class="card-body">
+                  <div class="d-inline-block">
+                    <h5 class="text-muted mb-3">Total Balance in Wallet</h5>
+                    <h2 class="mb-0">$ {!! number_format((float)(DashboardController::getTotalWallet()), 2) !!}</h2>
+                  </div>
+                  <div class="float-right icon-shape icon-xl rounded-circle  bg-info-light mt-1">
+                    <i class="fal fa-money-bill-wave fa-fw fa-sm text-info font-24"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-xl-3 col-lg-6 col-md-6 col-sm-12 col-12">
+              <div class="card mb-5 shadow-sm">
+                <div class="card-body">
+                  <div class="d-inline-block">
+                    <h5 class="text-muted mb-3">Total Swap Fee Collected</h5>
+                    <h2 class="mb-0">$ {!! number_format((float)(DashboardController::getTotalSwapFee()), 2) !!}</h2>
+                  </div>
+                  <div class="float-right icon-shape icon-xl rounded-circle  bg-info-light mt-1">
+                    <i class="fas fa-exchange-alt fa-fw fa-sm text-info font-24"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-xl-3 col-lg-6 col-md-6 col-sm-12 col-12">
+              <div class="card mb-5 shadow-sm">
+                <div class="card-body">
+                  <div class="d-inline-block">
+                    <h5 class="text-muted mb-3">Total Gas Fee Sent</h5>
+                    <h2 class="mb-0">{!!number_format((float)(DashboardController::getTotalGasFee()), 7)!!} BNB</h2>
+                  </div>
+                  <div class="float-right icon-shape icon-xl rounded-circle  bg-secondary-light mt-1">
+                    <i class="fas fa-coins fa-fw fa-sm text-secondary font-24"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
             <!-- ============================================================== -->
             <!-- end total earned   -->
             <!-- ============================================================== -->
           </div>
-            
+
             <div class="row">
-          
+
               <!-- ============================================================== -->
               <!-- recent orders  -->
               <!-- ============================================================== -->
@@ -240,7 +279,7 @@ use App\Models\User;
                             <td>{{ $getLatestTransaction->transaction_id }}</td>
                             <td>@php $user = User::find($getLatestTransaction->user_id, ['email']) @endphp {{ $user->email }}</td>
                             <td>$ {!! number_format((float)($getLatestTransaction->amount), 2) !!}</td>
-                            <td>{{ ucfirst($getLatestTransaction->t_type) }} 
+                            <td>{{ ucfirst($getLatestTransaction->t_type) }}
                             @if ($getLatestTransaction->t_type === 'debit')
                             <span class="icon-shape icon-xs rounded-circle text-danger ml-4 bg-danger-light"><i class="fa fa-fw fa-arrow-up"></i></span>
                             @else
@@ -250,7 +289,7 @@ use App\Models\User;
                             <td>{{ $getLatestTransaction->created_at }}</td>
                             <td><a href="/transaction/{{ ucfirst($getLatestTransaction->id) }}" class="btn btn-outline-success ">View</a></td>
                           </tr>
-                          @endforeach 
+                          @endforeach
 
                         </tbody>
                       </table>
@@ -261,13 +300,13 @@ use App\Models\User;
               <!-- ============================================================== -->
               <!-- end recent orders  -->
               <!-- ============================================================== -->
-              
-            </div>
-            
-            
-                
 
-            
+            </div>
+
+
+
+
+
           </div>
         </div>
       </div>

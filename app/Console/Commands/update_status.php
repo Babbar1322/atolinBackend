@@ -42,14 +42,14 @@ class update_status extends Command
      */
     public function handle()
     {
-       $transactions =  UserTransactionDetails::where("transaction_type","passport")->where("status","Pending")->get();
-       $invoices = PaymentInvoice::where("")->get();
-       foreach($transactions as $trans){
-            $transaction = Transaction::getTransaction($trans->transaction_id,"id");
+    //    $transactions =  UserTransactionDetails::where("transaction_type","passport")->where("status","Pending")->get();
+    //    $invoices = PaymentInvoice::where("")->get();
+    //    foreach($transactions as $trans){
+    //         $transaction = Transaction::getTransaction($trans->transaction_id,"id");
 
-            $status = $transaction['response']['status'];
-            $processDate = $transaction['response']['processDate'];
-            UserTransactionDetails::where("id",$trans->id)->update(["status"=>$status,"process_date"=>$processDate]);
-        }
+    //         $status = $transaction['response']['status'];
+    //         $processDate = $transaction['response']['processDate'];
+    //         UserTransactionDetails::where("id",$trans->id)->update(["status"=>$status,"process_date"=>$processDate]);
+    //     }
     }
 }

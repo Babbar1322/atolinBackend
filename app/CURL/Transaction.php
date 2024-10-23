@@ -5,6 +5,7 @@ namespace App\CURL;
 use App\Models\Country;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
+use Log;
 
 class Transaction
 {
@@ -105,6 +106,7 @@ class Transaction
 
     public static function collectToMainAccount(int $amount, string $sender_id, $external_id, $fee, $accountId)
     {
+        Log::info("fee: $fee");
         $quote = [
             "product_type" => "funding",
             "bank_guid" => "e51933ea9ce04d6f6e9f43cb9d19725e",
@@ -112,13 +114,15 @@ class Transaction
             "asset" => "USD",
             "receive_amount" => $amount * 100,
             "side" => "deposit",
-            "fees" => [
+        ];
+        if ($fee > 0) {
+            $quote['fees'] = [
                 [
                     "type" => "spread",
                     "spread_fee" => $fee * 100
                 ]
-            ]
-        ];
+            ];
+        }
         $quoteToken = Auth::getToken('quotes', 'execute');
         if ($quoteToken['status'] == false) {
             return self::returnData($quoteToken);
@@ -148,9 +152,10 @@ class Transaction
         return self::returnData($response);
     }
 
-    public static function sendUserToUser(int $amount, string $sender_id, string $receiver_id) {
+    public static function sendUserToUser(int $amount, string $sender_id, string $receiver_id)
+    {
         $quote = [
-            "product_type"=> 'book_transfer',
+            "product_type" => 'book_transfer',
             "asset" => "USD",
             "receive_amount" => $amount,
         ];

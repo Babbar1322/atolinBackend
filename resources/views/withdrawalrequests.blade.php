@@ -12,7 +12,7 @@ use App\Models\User;
             <div class="col-xl-12 col-lg-12 col-md-12 col-sm-12 col-12">
                 <div class="page-header">
                     @include('common.notify')
-                    <h2 class="pageheader-title">Withdrawal Requests</h2>
+                    <h2 class="pageheader-title">{{request()->route()->named('confirmedwithdrawrequests') ? "Confirmed":"Pending"}} Withdrawal Requests</h2>
                     <div class="page-breadcrumb">
                         <nav aria-label="breadcrumb">
                             <ol class="breadcrumb">

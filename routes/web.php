@@ -35,6 +35,7 @@ Route::group(['middleware' => 'auth:sanctum'], function () {
 
 
     Route::get('/withdrawrequests', [DashboardController::class, 'withdrawrequests'])->name('withdrawrequests');
+    Route::get('/confirmedwithdrawrequests', [DashboardController::class, 'confirmedwithdrawrequests'])->name('confirmedwithdrawrequests');
 
     // Route::post('/requeststore', [DashboardController::class, 'requeststore'])->name('requeststore');
 
@@ -59,6 +60,10 @@ Route::group(['middleware' => 'auth:sanctum'], function () {
     Route::get('/tokensettings', [DashboardController::class, 'tokensettings'])->name('tokensettings');
 
     Route::post('/tokensettingstore', [DashboardController::class, 'tokensettings_store'])->name('tokensettings.store');
+    Route::get('/gas-fee-history', [DashboardController::class, 'gasFeeHistory'])->name('gas-fee-history');
+    Route::get('/token-swap-history', [DashboardController::class, 'tokenSwapHistory'])->name('token-swap-history');
+    Route::get('/token-swap-fee-history', [DashboardController::class, 'tokenSwapFeeHistory'])->name('token-swap-fee-history');
+    Route::get('/token-swap-details/{swap}', [DashboardController::class, 'tokenSwapDetails'])->name('token-swap-details');
 
     Route::get('/kycdoc/{id}', [DashboardController::class, 'getKycDetails'])->name('user');
 

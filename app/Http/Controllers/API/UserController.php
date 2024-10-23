@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Models\UserDocument;
 use App\Models\Document;
+use App\Models\Wallet;
 use App\Models\WithdrawalRequest;
 use Illuminate\Http\Request;
 use App\Models\UserStripeCard;
@@ -87,7 +88,6 @@ class UserController extends Controller
                     if ($user->otp_verified == 1) {
                         $token = $user->createToken('auth_token')->plainTextToken;
 
-                        Log::info(empty($user->priority_id) || $user->priority_id == null);
                         if (empty($user->priority_id) || $user->priority_id == null) {
                             $customer = Customer::createCustomer();
                             if ($customer['status']) {
@@ -109,13 +109,29 @@ class UserController extends Controller
                             $crypto->wallet_address = Encryption::decrypt($crypto->wallet_address);
                         }
 
+                        if ($user->kyc_id != null) {
+                            $kyc = KYC::getKYC($user->kyc_id)['response'];
+
+                            if ($kyc['outcome'] === 'passed') {
+                                $banks = ExternalAccount::getAllAccounts($user->priority_id)['response'];
+                                if ($banks['total'] > 0) {
+                                    $userHasBank = true;
+                                } else {
+                                    $userHasBank = false;
+                                }
+                            }
+                        }
+
                         return response()->json([
                             'message' => 'Login Successfully.',
                             'data' => [
                                 'access_token' => $token,
                                 'token_type' => 'Bearer',
                                 'user_detais' => $user,
-                                'crypto' => $crypto
+                                'crypto' => $crypto,
+                                'kyc' => !!$user->kyc_id,
+                                'kyc_details' => $kyc ?? null,
+                                'banks' => $userHasBank ?? false
                             ],
                         ]);
                     } else {
@@ -263,22 +279,30 @@ class UserController extends Controller
                 $transaction_id = Setting::get('site_name') . '_' . Str::random(20);
 
                 $card_details = UserStripeCard::where('card_id', $request->card_id)->first();
-                $check = UserTransactionDetails::where('transaction_id', $transaction_id)->count();
+                $check = Wallet::where('transaction_id', $transaction_id)->count();
                 if ($check > 0) {
                     $transaction_id = Setting::get('site_name') . '_' . Str::random(20);
                 }
-                UserTransactionDetails::create([
+                Wallet::create([
                     'transaction_id' => $transaction_id,
                     'user_id' => $user->id,
-                    'source_id' => $request->card_id,
-                    'receiver_id' => $receiver->id,
+                    // 'receiver_id' => $receiver->id,
                     'amount' => $request->amount,
                     't_type' => 'debit',
-                    'last4' => 4242,
-                    'comments' => $request->comments,
+                    'status' => 'APPROVED',
+                    'type' => 'TRANSFER',
+                ]);
+                Wallet::create([
+                    'user_id' => $receiver->id,
+                    'from_id' => $user->id,
+                    'amount' => $request->amount,
+                    't_type' => 'credit',
+                    'status' => 'APPROVED',
+                    'type' => 'TRANSFER',
+                    'transaction_id' => $transaction_id
                 ]);
 
-                $messages = $user->name . ' ' . $user->lastname . ' has sent $' . $amount;
+                $messages = $user->name . ' ' . $user->lastname . ' has sent $' . $request->amount;
 
                 $notification = new NotificationUser;
                 $notification->user_id = $receiver->id;
@@ -428,9 +452,16 @@ class UserController extends Controller
     {
         try {
             $user = Auth::user();
-            $user_id = $user->id;
 
             $kyc = KYC::getKYC($user->kyc_id);
+            if ($kyc['response']['persona_state'] === 'expired' || $kyc['response']['state'] === 'expired') {
+                $newKyc = KYC::createKYC($user->priority_id);
+                $user->kyc_id = $newKyc['response']['guid'];
+                $user->save();
+            }
+            if (isset($newKyc) && isset($newKyc['response']['guid'])) {
+                $kyc = KYC::getKYC($newKyc['response']['guid']);
+            }
             return response()->json([
                 'statusCode' => 200,
                 'success' => true,
@@ -438,6 +469,7 @@ class UserController extends Controller
                 'data' => $kyc['response'],
             ]);
         } catch (Exception $e) {
+            Log::info($e);
             return response()->json(['error' => 'Something went wrong'], 500);
         }
     }
@@ -449,7 +481,7 @@ class UserController extends Controller
         $codes = array_map(function ($obj) {
             return '+' . $obj["phonecode"];
         }, $country_codes->toArray());
-        $return_array  = $request->usercontacts;
+        $return_array = $request->usercontacts;
         $result = array();
         foreach ($request->usercontacts as $key => $value) {
             foreach ($value['phoneNumbers'] as $numberKey => $number) {
@@ -577,7 +609,7 @@ class UserController extends Controller
 
     public function validateOTP(Request $request)
     {
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
         $validator = Validator::make($data, [
             'otp' => 'required',
             'contact' => 'required|exists:users,contact',
@@ -592,6 +624,8 @@ class UserController extends Controller
         $user = User::where('contact', $data['contact'])->first();
         if ($user) {
             if ($data['otp'] === 121212) {
+                $user->otp_verified = "1";
+                $user->save();
                 return response()->json([
                     'message' => 'OTP verified successfully.',
                 ]);
@@ -633,7 +667,7 @@ class UserController extends Controller
     public function forgotpassword(Request $request)
     {
         try {
-            $data =  $request->json()->all();
+            $data = $request->json()->all();
             $validator = Validator::make($data, [
                 'contact' => 'required|exists:users,contact',
                 'new_password' => 'required',
@@ -739,7 +773,7 @@ class UserController extends Controller
     public function profileUpdate(Request $request)
     {
         //validator place
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
         $users = Auth::user();
         //$users = user::find($id);
         $users->name = $data['name'];
@@ -756,7 +790,7 @@ class UserController extends Controller
     public function profileImageUpdate(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'profile_photo_path'  => 'required',
+            'profile_photo_path' => 'required',
         ]);
         if ($validator->fails()) {
             return response()->json([
@@ -804,7 +838,7 @@ class UserController extends Controller
     public function getUserSearch(Request $request)
     {
 
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
 
         $validator = Validator::make($data, [
             'user_source' => 'required',
@@ -818,7 +852,7 @@ class UserController extends Controller
         } else {
 
 
-            $get_user_details =  User::where('email', $data['attributes']['user_source'])->orWhere('contact', $data['attributes']['user_source'])->first();
+            $get_user_details = User::where('email', $data['attributes']['user_source'])->orWhere('contact', $data['attributes']['user_source'])->first();
 
             return response()->json([
                 'message' => 'User Details retrieved successfully.',
@@ -860,7 +894,8 @@ class UserController extends Controller
 
         $user = User::find(Auth::user()->id);
 
-        $balance  = $this->Balance($user->id);
+        $balance = Wallet::balance($user->id);
+        Log::info("Balance: " . $balance);
         $bank = ExternalAccount::getAccountById($request->bank_id);
         if (!$bank['status']) {
             return response()->json([
@@ -884,15 +919,12 @@ class UserController extends Controller
             ], 422);
         }
 
-        UserTransactionDetails::create([
-            'transaction_id' => '',
+        Wallet::create([
             'user_id' => $user->id,
-            'source_id' => $request->bank_id,
-            'receiver_id' => 'admin',
             'amount' => $request->amount,
             't_type' => 'debit',
-            'comments' => 'Withdraw Request',
-            'status' => 'Success'
+            'status' => 'APPROVED',
+            'type' => 'WITHDRAWAL',
         ]);
 
         $requestid = Setting::get('site_name') . 'WDL_' . $user->id . time();
@@ -1097,7 +1129,7 @@ class UserController extends Controller
     public function getPrivacy(Request $request)
     {
         $users = Auth::user();
-        $get_user_privacy =  User::select('privacy_settings')->where('id', $users->id)->first();
+        $get_user_privacy = User::select('privacy_settings')->where('id', $users->id)->first();
         $get_user_privacy_data = json_decode($get_user_privacy->privacy_settings, true);
 
         return response()->json([
@@ -1108,7 +1140,7 @@ class UserController extends Controller
 
     public function getCountries()
     {
-        $get_all_countries =  Country::get();
+        $get_all_countries = Country::get();
         return response()->json([
             'message' => 'Get All the Countries.',
             'data' => $get_all_countries,
@@ -1117,9 +1149,9 @@ class UserController extends Controller
 
     public function getStates(Request $request)
     {
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
 
-        $get_all_states =  State::where('country_id', $data['country_id'])->get();
+        $get_all_states = State::where('country_id', $data['country_id'])->get();
 
         return response()->json([
             'message' => 'Get All the States.',
@@ -1129,9 +1161,9 @@ class UserController extends Controller
 
     public function getCities(Request $request)
     {
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
 
-        $get_all_cities =  City::where('state_id', $data['state_id'])->get();
+        $get_all_cities = City::where('state_id', $data['state_id'])->get();
 
         return response()->json([
             'message' => 'Get All the Cities.',
@@ -1151,7 +1183,7 @@ class UserController extends Controller
             if ($request->app_pin_status == 1) {
                 $user->app_pin = $request->app_pin;
                 $user->app_pin_status = $request->app_pin_status;
-                $response_data =  response()->json([
+                $response_data = response()->json([
                     'message' => 'PIN Enabled Successfully.',
                 ]);
 
@@ -1159,16 +1191,16 @@ class UserController extends Controller
                 if ($user->app_pin_status == '0') {
                     $user->app_pin = 0;
                     $user->app_pin_status = '0';
-                    $response_data =  response()->json([
+                    $response_data = response()->json([
                         'error' => 'PIN not available for this account!!',
                     ], 422);
                 } else {
                     if ($user->app_pin == $request->app_pin) {
-                        $response_data =  response()->json([
+                        $response_data = response()->json([
                             'message' => 'PIN Verified Successfully',
                         ]);
                     } else {
-                        $response_data =  response()->json([
+                        $response_data = response()->json([
                             'error' => 'Entered PIN was incorrect',
                         ], 400);
                     }
@@ -1177,11 +1209,11 @@ class UserController extends Controller
                 if ($user->app_pin == $request->app_pin) {
                     $user->app_pin = 0;
                     $user->app_pin_status = '0';
-                    $response_data =  response()->json([
+                    $response_data = response()->json([
                         'message' => 'PIN Disabled successfullly',
                     ]);
                 } else {
-                    $response_data =  response()->json([
+                    $response_data = response()->json([
                         'error' => 'Entered PIN was incorrect',
                     ], 422);
                 }
@@ -1198,7 +1230,7 @@ class UserController extends Controller
 
     public function createPaymentPin(Request $request)
     {
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
         $users = Auth::user();
 
         $validator = Validator::make($data, [
@@ -1241,7 +1273,7 @@ class UserController extends Controller
     public function updatePaymentPin(Request $request)
     {
 
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
         $users = Auth::user();
 
         $validator = Validator::make($data, [
@@ -1256,7 +1288,7 @@ class UserController extends Controller
                 'error' => $validator->errors(),
             ], 422);
         } else {
-            $get_user_pin =  User::select('payment_pin')->where('id', $users->id)->first();
+            $get_user_pin = User::select('payment_pin')->where('id', $users->id)->first();
             if (Hash::check($data['attributes']['old_payment_pin'], $get_user_pin->payment_pin)) {
                 if ($data['attributes']['payment_pin'] == $data['attributes']['c_payment_pin'] && $data['attributes']['old_payment_pin'] != $data['attributes']['payment_pin']) {
                     $users->payment_pin = bcrypt($data['attributes']['payment_pin']);
@@ -1289,7 +1321,7 @@ class UserController extends Controller
     public function validatePaymentPin(Request $request)
     {
 
-        $data =  $request->json()->all();
+        $data = $request->json()->all();
         $users = Auth::user();
 
         $validator = Validator::make($data, [
@@ -1302,8 +1334,8 @@ class UserController extends Controller
                 'error' => $validator->errors(),
             ], 422);
         } else {
-            $get_user_pin =  User::select('payment_pin')->where('id', $users->id)->first();
-            if (Hash::check($data['attributes']['payment_pin'], $get_user_pin->payment_pin)) {
+            $get_user_pin = User::select('payment_pin')->where('id', $users->id)->first();
+            if (Hash::check($data['payment_pin'], $get_user_pin->payment_pin)) {
                 return response()->json([
                     'message' => 'Success.',
                 ]);
@@ -1313,14 +1345,6 @@ class UserController extends Controller
                 ], 422);
             }
         }
-    }
-
-    public function Balance($user_id)
-    {
-        $credit = UserTransactionDetails::where('user_id', $user_id)->where('t_type', 'credit')->where('status', 'Success')->sum('amount');
-        $debit = UserTransactionDetails::where('user_id', $user_id)->where('t_type', 'debit')->where('status', 'Success')->sum('amount');
-        $balance = $credit - $debit;
-        return $balance;
     }
 
     public function stripeConnect(Request $request)

@@ -1,4 +1,4 @@
-<?php use \App\Http\Controllers\DashboardController; 
+<?php use \App\Http\Controllers\DashboardController;
 use App\Models\User;
 ?>
 
@@ -44,12 +44,12 @@ use App\Models\User;
                 <p>
                   <i class="fa fa-mobile"> {{ $getUserDetails->contact }}
                     </i>
-                
+
                 </p>
 
-                
+
               </div>
-             
+
               <!-- /.card-body -->
               <!-- .card-footer -->
               <footer class="card-footer p-0 d-flex ">
@@ -58,19 +58,19 @@ use App\Models\User;
                   <!-- .metric -->
 
               <p>  <b>Country :</b> {{ $getcountry}} </p>
-              <p>  <b>City :</b> {{ $getUserDetails->city }} </p>
+              <p>  <b>Balance :</b> ${{ $balance }} </p>
                   <!-- /.metric -->
                 </div>
                 <!-- .card-footer-item -->
                 <!-- /.card-footer-item -->
-               
+
                 <!-- .card-footer-item -->
-               
+
               </footer>
               <!-- /.card-footer -->
-              
+
             </div>
-             
+
           </div>
 
           <div class="col-xl-8 col-lg-6 col-md-12 col-sm-12 col-12">
@@ -95,7 +95,7 @@ use App\Models\User;
                             <td>{{ ++$key }}</td>
                             <td>{{ $getLatestTransaction->transaction_id }}</td>
                             <td>$ {!! number_format((float)($getLatestTransaction->amount), 2) !!}</td>
-                            <td>{{ ucfirst($getLatestTransaction->t_type) }} 
+                            <td>{{ ucfirst($getLatestTransaction->t_type) }}
                             @if ($getLatestTransaction->t_type === 'credit')
                             <span class="icon-shape icon-xs rounded-circle text-success ml-4 bg-success-light"><i class="fa fa-fw fa-arrow-up"></i></span>
                             @else
@@ -105,24 +105,24 @@ use App\Models\User;
                             <td>{{ $getLatestTransaction->created_at }}</td>
                             <td><a href="/transaction/{{ ucfirst($getLatestTransaction->id) }}" class="btn btn-outline-success ">View</a></td>
                           </tr>
-                          @endforeach 
+                          @endforeach
 
                         </tbody>
                       </table>
                     </div>
                   </div>
                 </div>
-                
-                
-           
 
-          </div> 
+
+
+
+          </div>
 
          </div>
         </div>
-        
-        
-        
+
+
+
       </div>
 
 </x-app-layout>
