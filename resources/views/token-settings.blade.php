@@ -72,6 +72,12 @@ use App\Encryption\Encryption;
                         </div>
                     </div>
                     <div class="form-group row">
+                        <label for="infura_key" class="col-xs-12 col-form-label">Infura API Key (For Ethereum)</label>
+                        <div class="col-xs-10" style="padding: 0px 10px">
+                            <input class="form-control" type="text" name="infura_key" required id="infura_key" placeholder="Infura API Key" value="{{ Encryption::decrypt(Setting::get('infura_key'))  }}">
+                        </div>
+                    </div>
+                    <div class="form-group row">
                         <label for="token_price" class="col-xs-12 col-form-label">Token Price ($)</label>
                         <div class="col-xs-10" style="padding: 0px 10px">
                             <input class="form-control" type="text" name="token_price" required id="token_price" placeholder="Token Price ($)" value="{{ Setting::get('token_price')  }}">

@@ -183,6 +183,7 @@ Route::group(['middleware' => 'checkApp'], function () {
         Route::get('crypto-history', [ApiController::class, 'transactionHistory']);
         Route::post('check-address', [ApiController::class, 'checkAddress']);
         Route::post('swap-token', [ApiController::class, 'swapToken']);
+        Route::post('switch-network', [ApiController::class, 'switchNetwork']);
     });
     //Route::get('test-api', [ApiController::class, 'test_api']);
 

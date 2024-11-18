@@ -15,6 +15,8 @@ class Transaction
             return ['status' => true, 'response' => $response->json()];
         }
         if ($response->failed()) {
+            // Log::info("Transfer Error: ");
+            // Log::info($response->json());
             if (!empty($response->json()['error_message'])) {
                 return ['status' => false, 'response' => $response->json()['error_message']];
             }
@@ -78,6 +80,7 @@ class Transaction
             "receive_amount" => $amount * 100,
             "side" => "withdrawal"
         ];
+        Log::info("Withraw Quote Request -- " . json_encode($quote));
         $quoteToken = Auth::getToken('quotes', 'execute');
         if ($quoteToken['status'] == false) {
             return self::returnData($quoteToken);
@@ -86,6 +89,7 @@ class Transaction
             'Authorization' => 'Bearer ' . $quoteToken['response']['access_token'],
         ])->post('https://bank.sandbox.cybrid.app/api/quotes', $quote);
 
+        Log::info("Withraw Quote Response -- " . json_encode($quoteResponse->json()));
         if ($quoteResponse->failed()) {
             return self::returnData($quoteResponse);
         }
@@ -95,18 +99,24 @@ class Transaction
             "transfer_type" => "funding",
             "external_bank_account_guid" => $external_id,
         ];
+        Log::info("Withdraw Transfer Request -- " . json_encode($transfer));
         $transferToken = Auth::getToken('transfers', 'execute');
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $transferToken['response']['access_token'],
         ])->post("https://bank.sandbox.cybrid.app/api/transfers", $transfer);
-        // \Log::info($response);
+
+        Log::info("Withdraw Transfer Response -- " . json_encode($response->json()));
+        Log::info("=======================================================================");
+        if ($response->failed()) {
+            return self::returnData($response);
+        }
 
         return self::returnData($response);
     }
 
     public static function collectToMainAccount(int $amount, string $sender_id, $external_id, $fee, $accountId)
     {
-        Log::info("fee: $fee");
+        // Log::info("fee: $fee");
         $quote = [
             "product_type" => "funding",
             "bank_guid" => "e51933ea9ce04d6f6e9f43cb9d19725e",
@@ -123,6 +133,7 @@ class Transaction
                 ]
             ];
         }
+        Log::info("Deposit Quote Request -- " . json_encode($quote));
         $quoteToken = Auth::getToken('quotes', 'execute');
         if ($quoteToken['status'] == false) {
             return self::returnData($quoteToken);
@@ -131,6 +142,7 @@ class Transaction
             'Authorization' => 'Bearer ' . $quoteToken['response']['access_token'],
         ])->post('https://bank.sandbox.cybrid.app/api/quotes', $quote);
 
+        Log::info("Deposit Quote Response -- " . json_encode($quoteResponse->json()));
         if ($quoteResponse->failed()) {
             return self::returnData($quoteResponse);
         }
@@ -141,11 +153,15 @@ class Transaction
             "external_bank_account_guid" => $external_id,
             "customer_fiat_account_guid" => $accountId,
         ];
+        Log::info("Deposit Transfer Request -- " . json_encode($transfer));
         $transferToken = Auth::getToken('transfers', 'execute');
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $transferToken['response']['access_token'],
         ])->post("https://bank.sandbox.cybrid.app/api/transfers", $transfer);
         // \Log::info($response);
+
+        Log::info("Deposit Transfer Response -- " . json_encode($response->json()));
+        Log::info("=======================================================================");
 
         self::sendUserToUser($amount * 100, $accountId, env('CYBRID_MAIN_ACCOUNT'));
 

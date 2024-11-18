@@ -13,9 +13,9 @@ class KYC
             return ['status' => true, 'response' => $response->json()];
         }
         if ($response->failed()) {
-            Log::info("KYC ERROR ----------------------------------");
-            Log::error($response->json());
-            Log::info("KYC ERROR ----------------------------------");
+            // Log::info("KYC ERROR ----------------------------------");
+            // Log::error($response->json());
+            // Log::info("KYC ERROR ----------------------------------");
             if (!empty($response->json()['error_message'])) {
                 return ['status' => false, 'response' => $response->json()['error_message']];
             }

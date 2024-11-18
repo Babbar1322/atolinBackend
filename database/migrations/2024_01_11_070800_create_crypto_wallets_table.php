@@ -20,6 +20,7 @@ class CreateCryptoWalletsTable extends Migration
             $table->string('private_key');
             $table->string('secret_phrase');
             $table->string('public_key');
+            $table->enum('network', ["ethereum", "binance"]);
             $table->timestamps();
         });
     }

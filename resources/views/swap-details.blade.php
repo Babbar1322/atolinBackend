@@ -40,6 +40,9 @@ use App\Models\User;
                 <p>
                     <i class="fa fa-mobile"> {{ $swap->user->contact }}</i>
                 </p>
+                <p>
+                    <i class="fas fa-wallet"> {{ $swap->from === "ATOLIN" ? $swap->cryptoTransaction->to ?? "-" : $swap->cryptoTransaction->from ?? "-" }}</i>
+                </p>
               </div>
               <!-- /.card-body -->
             </div>
@@ -48,13 +51,17 @@ use App\Models\User;
           <div class="col-xl-8 col-lg-6 col-md-12 col-sm-12 col-12">
           <div class="card card-fluid mb-5 shadow-sm">
           <h5 class="card-header">Swap Detail</h5>
+          @php
+              $fromAtolin = $swap->from === 'ATOLIN';
+          @endphp
               <!-- .card-body -->
               <div class="card-body">
                 <p><b>Swapped From:</b> {{$swap->from}}</p>
                 <p><b>Swapped To:</b> {{$swap->to}}({{$swap->token_symbol}})</p>
-                <p><b>From Amount:</b> @if($swap->from === 'ATOLIN') {{$swap->atolin_amount}} $ @else {{$swap->token_amount}} {{$swap->token_symbol}} @endif</p>
-                <p><b>To Amount:</b> {{$swap->amountAfterFee()}} @if($swap->from === 'ATOLIN') {{$swap->token_symbol}} @else $ @endif</p>
-                <p><b>Swap Fee:</b> {{$swap->fee_amount}}@if($swap->from === 'ATOLIN') {{$swap->token_symbol}} @else $ @endif</p>
+                <p><b>From Amount:</b> @if($fromAtolin) {{$swap->atolin_amount}} $ @else {{$swap->token_amount}} {{$swap->token_symbol}} @endif</p>
+                <p><b>To Amount:</b> {{$swap->amountAfterFee()}} @if($fromAtolin) {{$swap->token_symbol}} @else $ @endif</p>
+                <p><b>Swap Fee:</b> {{$swap->fee_amount}}@if($fromAtolin) {{$swap->token_symbol}} @else $ @endif</p>
+                <p><b>@if($fromAtolin) Sent To:</b> {{$swap->cryptoTransaction->to}} @else Received From:</b> {{$swap->cryptoTransaction->from}} @endif </p>
               </div>
 
               <!-- /.card-body -->

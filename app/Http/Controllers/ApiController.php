@@ -271,7 +271,7 @@ class ApiController extends Controller
 
         $balance = Http::withHeaders([
             'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
-        ])->post('http://127.0.0.1:4000/get-balance', ['walletPrivate' => Encryption::decrypt($wallet->private_key), 'address' => $request->address]);
+        ])->post('http://127.0.0.1:4000/get-balance', ['walletPrivate' => Encryption::decrypt($wallet->private_key), 'address' => $request->address, 'network' => $wallet->network, 'infura_key' => Encryption::decrypt(Setting::get('infura_key')) ]);
 
         if ($balance->failed()) {
             return response()->json(['error' => $balance->json()], 400);
@@ -298,7 +298,7 @@ class ApiController extends Controller
 
         $balance = Http::withHeaders([
             'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
-        ])->post('http://127.0.0.1:4000/get-balance-by-address', ['walletPrivate' => Encryption::decrypt($wallet->private_key), 'contractAddress' => $request->address]);
+        ])->post('http://127.0.0.1:4000/get-balance-by-address', ['walletPrivate' => Encryption::decrypt($wallet->private_key), 'contractAddress' => $request->address, 'network' => $wallet->network, 'infura_key' => Encryption::decrypt(Setting::get('infura_key')) ]);
 
         if ($balance->failed()) {
             return response()->json(['error' => $balance->json()], 400);
@@ -540,7 +540,7 @@ class ApiController extends Controller
                     'walletPrivate' => Encryption::decrypt($wallet->private_key),
                     'toAddress' => $request->toAddress,
                     'amount' => $request->amount,
-                    'contractAddress' => $request->contractAddress,
+                    'contractAddress' => $request->contractAddress, 'network' => $wallet->network, 'infura_key' => Encryption::decrypt(Setting::get('infura_key'))
                 ]);
 
         if ($transaction->successful()) {
@@ -583,10 +583,12 @@ class ApiController extends Controller
 
     public function checkAddress(Request $request)
     {
+        $user = Auth::user();
+        $wallet = CryptoWallet::where('user_id', $user->id)->first();
         $contract = Http::withHeaders([
             'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
         ])->post('http://127.0.0.1:4000/check-token', [
-                    'address' => $request->address,
+                    'address' => $request->address, 'network' => $wallet->network, 'infura_key' => Encryption::decrypt(Setting::get('infura_key'))
                 ]);
 
         if ($contract->successful()) {
@@ -819,6 +821,7 @@ class ApiController extends Controller
                     'walletPrivate' => $walletPrivate,
                     'toAddress' => $reciever,
                     'amount' => $token_amount,
+                    'network' => $wallet->network
                 ]);
 
         if ($swapTx->successful()) {
@@ -864,6 +867,7 @@ class ApiController extends Controller
                             'walletPrivate' => Encryption::decrypt($wallet->private_key),
                             'toAddress' => $reciever,
                             'amount' => $swapRes['gasPrice'],
+                            'infura_key' => Encryption::decrypt(Setting::get('infura_key'))
                         ]);
 
                 if ($gasFee->successful()) {
@@ -888,17 +892,35 @@ class ApiController extends Controller
                         'fee_id' => $swap->id,
                     ]);
                 }
-                if ($gasFee->failed()) {
-                    Log::info("GAS ERROR ----------------------------------");
-                    Log::info($gasFee->json());
-                    Log::info("GAS ERROR ----------------------------------");
-                }
+                // if ($gasFee->failed()) {
+                //     Log::info("GAS ERROR ----------------------------------");
+                //     Log::info($gasFee->json());
+                //     Log::info("GAS ERROR ----------------------------------");
+                // }
             }
             return response()->json(['message' => 'Transaction Successful']);
         }
         if ($swapTx->failed()) {
             return response()->json(['error' => $swapTx->json()], 400);
         }
+    }
+
+    public function switchNetwork(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'network' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 422);
+        }
+        $user = Auth::user();
+        $wallet = CryptoWallet::where('user_id', $user->id)->first();
+        if (empty($wallet)) {
+            return response()->json(['error' => 'No Wallet is Connected to this user'], 422);
+        }
+        $wallet->network = $request->network;
+        $wallet->save();
+        return response()->json(['message' => 'Wallet Switched to ' . $request->network]);
     }
 
 

@@ -16,6 +16,8 @@ class CreateTokenSwapsTable extends Migration
         Schema::create('token_swaps', function (Blueprint $table) {
             $table->id();
             $table->integer('user_id');
+            $table->integer('crypto_transaction_id');
+            $table->integer('crypto_wallet_id');
             $table->enum('from', ["ATOLIN", "TOKEN"]);
             $table->enum('to', ["ATOLIN", "TOKEN"]);
             $table->integer('atolin_amount');

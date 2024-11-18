@@ -999,11 +999,25 @@ class StripePaymentController extends Controller
             if ($userAccount['status'] && $userAccount['response']['total'] > 0) {
                 $destAccount = $userAccount['response']['objects'][0]['guid'];
             }
+            $externalAccount = ExternalAccount::getAccountById($request->source);
+            if ($externalAccount['status']) {
+                if ($externalAccount['response']['state'] == 'unverified') {
+                    return response()->json(['error' => 'Account not verified.'], 422);
+                }
+                if ($externalAccount['response']['state'] == 'deleted' || $externalAccount['response']['state'] == 'deleting') {
+                    return response()->json(['error' => 'Account deleted.'], 422);
+                }
+                if ($externalAccount['response']['state'] == 'failed') {
+                    return response()->json(['error' => 'There was an error with your account.'], 422);
+                }
+            } else {
+                return response()->json(['error' => $externalAccount['response']], 422);
+            }
             // return response()->json(["error" => $destAccount], 422);
 
             $transaction = Transaction::collectToMainAccount($amount, $user->priority_id, $request->source, $deposit_fee, $destAccount);
             if (!$transaction['status']) {
-                return response()->json(['error' => $transaction['response']], 422);
+                return response()->json(['error' => $transaction['response'], "type" => "Collect to Main Account"], 422);
             }
 
             $userTransaction = $transaction['response'];
@@ -1165,13 +1179,24 @@ class StripePaymentController extends Controller
             $event_type = $type[0];
             $event_status = $type[1];
 
+            // Log::info("============EVENT===============");
+            // Log::info($request->all());
+            // Log::info("============EVENT===============");
+            // Log::info($event_type . ' ' . $event_status);
+            // Log::info("============EVENT===============");
+
             if ($event_type == 'identity_verification') {
+                // Log::info("============KYC EVENT===============");
+                // Log::info($request->all());
+                // Log::info("============KYC EVENT===============");
                 if ($event_status == 'completed') {
                     $kyc = KYC::getKYC($request->object_guid);
-                    if ($kyc['status'] && $kyc['response']['outcome'] === 'passed') {
-                        $customer_id = $kyc['response']['customer_guid'];
-                        // $user = User::where('priority_id', $customer_id)->first();
-                        Account::create($customer_id);
+                    if ($kyc['status'] && $kyc['response']['type'] === 'kyc') {
+                        if ($kyc['response']['outcome'] === 'passed') {
+                            $customer_id = $kyc['response']['customer_guid'];
+                            // $user = User::where('priority_id', $customer_id)->first();
+                            Account::create($customer_id);
+                        }
                     }
                 }
             }

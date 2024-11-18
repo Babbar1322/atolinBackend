@@ -95,18 +95,29 @@ class DashboardController extends Controller
             return back()->with('flash_error', 'Bank id doesn\'t exist!');
         }
 
+        if ($bank['response']['state'] === 'unverified') {
+            return back()->with('flash_error', 'User\'s Bank account not verified!');
+        }
+        if ($bank['response']['state'] === 'deleted' || $bank['response']['state'] === 'deleting') {
+            return back()->with('flash_error', 'User\'s Bank account was deleted!');
+        }
+        if ($bank['response']['state'] === 'failed' || $bank['response']['state'] === 'refresh_required') {
+            return back()->with('flash_error', 'User\'s Bank account was failed!');
+        }
+
         // $payout = \Stripe\PaymentIntent::create([
         //     'amount' => $withdraw->amount * 100,
         //     'currency' => 'USD',
         //     'customer' => $cust_id, // Replace with the customer's Stripe ID
         // ]);
-        $payout = Transaction::sendToUser($withdraw->amount, $user->priority_id, $bank['response']['guid']);
+        $payout = Transaction::sendToUser($withdraw->amount, $user->priority_id, $withdraw->bank_id);
 
         if (!$payout['status']) {
             return back()->with('flash_error', $payout['response']);
         }
 
         $withdraw->status = 'APPROVED';
+        $withdraw->remarks = $request->remarks ?? null;
         $withdraw->save();
 
         $user = User::find($withdraw->user_id);
@@ -230,6 +241,7 @@ class DashboardController extends Controller
     {
         $withdraw = WithdrawalRequest::find($request->id);
         $withdraw->status = 'REJECTED';
+        $withdraw->remarks = $request->remarks ?? null;
         $withdraw->save();
         $user = User::find($withdraw->user_id);
         if (!isset($user)) {
@@ -531,6 +543,7 @@ class DashboardController extends Controller
             'wallet_private' => 'required',
             'wallet_address' => 'required',
             'swap_fee' => 'required|numeric',
+            'infura_key' => 'required',
         ]);
 
         Setting::set('token_address', $request->token_address);
@@ -538,6 +551,7 @@ class DashboardController extends Controller
         Setting::set('swap_fee', $request->swap_fee);
         Setting::set('wallet_private', Encryption::encrypt($request->wallet_private));
         Setting::set('wallet_address', Encryption::encrypt($request->wallet_address));
+        Setting::set('infura_key', Encryption::encrypt($request->infura_key));
         Setting::set('token_network', $request->token_network);
         Setting::save();
 
@@ -562,6 +576,7 @@ class DashboardController extends Controller
         return view('token-swap-fee-history', compact('history', 'totalSwapFee', 'totalTokenFee'));
     }
     public function tokenSwapDetails(TokenSwap $swap) {
+        $swap->load(["cryptoTransaction", "cryptoWallet"]);
         return view('swap-details', compact('swap'));
     }
 

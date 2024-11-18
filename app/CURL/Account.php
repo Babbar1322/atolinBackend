@@ -54,7 +54,7 @@ class Account
         if ($getToken['status'] == false) {
             return $getToken;
         }
-        $accounts = self::getByUser($id)['response']['objects']['total'];
+        $accounts = self::getByUser($id)['response']['total'];
         if ($accounts > 0) {
             return;
         }

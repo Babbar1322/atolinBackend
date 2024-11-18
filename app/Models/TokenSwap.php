@@ -27,6 +27,8 @@ class TokenSwap extends Model
         'token_amount',
         'fee',
         'token_symbol',
+        'crypto_transaction_id',
+        'crypto_wallet_id',
     ];
 
     protected $appends = ['fee_amount'];
@@ -44,5 +46,15 @@ class TokenSwap extends Model
     public function amountAfterFee()
     {
         return $this->atolin_amount - $this->fee_amount;
+    }
+
+    public function cryptoTransaction()
+    {
+        return $this->belongsTo(CryptoTransaction::class);
+    }
+
+    public function cryptoWallet()
+    {
+        return $this->belongsTo(CryptoWallet::class);
     }
 }
