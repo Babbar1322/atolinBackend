@@ -277,7 +277,7 @@ use App\Models\User;
                           <tr>
                             <td>{{ ++$key }}</td>
                             <td>{{ $getLatestTransaction->transaction_id }}</td>
-                            <td>@php $user = User::find($getLatestTransaction->user_id, ['email']) @endphp {{ $user->email }}</td>
+                            <td>@php $user = User::find($getLatestTransaction->user_id, ['email']) @endphp {{ $user->email ?? "User Deleted" }}</td>
                             <td>$ {!! number_format((float)($getLatestTransaction->amount), 2) !!}</td>
                             <td>{{ ucfirst($getLatestTransaction->t_type) }}
                             @if ($getLatestTransaction->t_type === 'debit')

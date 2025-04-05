@@ -45,7 +45,7 @@
                             <tr>
                               <td>{{ ++$key }}</td>
                               <td>{{ $item->created_at->format('d M Y') }}</td>
-                              <td>{{ $item->user->name }} {{$item->user->lastName}}<br>{{$item->user->email}}</td>
+                              <td>{{ $item->user->name ?? "Deleted" }} {{$item->user->lastName ?? "User"}}<br>{{$item->user->email ?? ""}}</td>
                               <td>{{ $item->amount }}</td>
                               <td><a href="/token-swap-details/{{ $item->fee_id }}" class="btn btn-primary">Swap Details</a></td>
                             </tr>

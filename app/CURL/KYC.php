@@ -13,9 +13,11 @@ class KYC
             return ['status' => true, 'response' => $response->json()];
         }
         if ($response->failed()) {
-            // Log::info("KYC ERROR ----------------------------------");
-            // Log::error($response->json());
-            // Log::info("KYC ERROR ----------------------------------");
+            if (env('LOG_CYBRID')) {
+                Log::info("Cybrid Error in KYC.php");
+                Log::info($response->json());
+                Log::info("================================");
+            }
             if (!empty($response->json()['error_message'])) {
                 return ['status' => false, 'response' => $response->json()['error_message']];
             }
@@ -36,7 +38,7 @@ class KYC
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->post('https://bank.sandbox.cybrid.app/api/identity_verifications', $data);
+        ])->post(config('cybrid.api').'/identity_verifications', $data);
         return self::returnData($response);
     }
 
@@ -48,7 +50,7 @@ class KYC
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get("https://bank.sandbox.cybrid.app/api/identity_verifications/{$id}");
+        ])->get(config('cybrid.api')."/identity_verifications/{$id}");
         return self::returnData($response);
     }
 
@@ -60,7 +62,7 @@ class KYC
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get("https://bank.sandbox.cybrid.app/api/identity_verifications?customer_guid={$id}&state=completed");
+        ])->get(config('cybrid.api')."/identity_verifications?customer_guid={$id}&state=completed");
         return self::returnData($response);
     }
 
@@ -72,7 +74,7 @@ class KYC
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get("https://bank.sandbox.cybrid.app/api/identity_verifications?customer_guid={$id}");
+        ])->get(config('cybrid.api')."/identity_verifications?customer_guid={$id}");
         return self::returnData($response);
     }
 
@@ -93,7 +95,18 @@ class KYC
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->post("https://bank.sandbox.cybrid.app/api/identity_verifications", $data);
+        ])->post(config('cybrid.api')."/identity_verifications", $data);
+        return self::returnData($response);
+    }
+
+    public static function getBankVerifications($user_id) {
+        $token = Auth::getToken('identity_verifications', 'read');
+        if ($token['status'] == false) {
+            return $token;
+        }
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get(config('cybrid.api')."/identity_verifications?customer_guid={$user_id}&state=waiting%2Cpending%2Creviewing&type=bank_account");
         return self::returnData($response);
     }
 }

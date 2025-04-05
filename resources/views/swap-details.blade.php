@@ -34,11 +34,11 @@ use App\Models\User;
               <!-- .card-body -->
               <div class="card-body text-center ">
                 <h3 class="card-title mb-2 text-truncate ">
-                  <a href="/user/{{ ucfirst($swap->user->id) }}">{{ $swap->user->name.' '. $swap->user->lastname  }}</a>
+                  <a href="/user/{{ ucfirst($swap->user->id ?? 0) }}">{{ $swap->user->name ?? "Deleted".' '. ($swap->user->lastname ?? "User")  }}</a>
                 </h3>
-                <h6 class="card-subtitle text-muted mb-3 "> {{ $swap->user->email }}</h6>
+                <h6 class="card-subtitle text-muted mb-3 "> {{ $swap->user->email ?? "-" }}</h6>
                 <p>
-                    <i class="fa fa-mobile"> {{ $swap->user->contact }}</i>
+                    <i class="fa fa-mobile"> {{ $swap->user->contact ?? "-" }}</i>
                 </p>
                 <p>
                     <i class="fas fa-wallet"> {{ $swap->from === "ATOLIN" ? $swap->cryptoTransaction->to ?? "-" : $swap->cryptoTransaction->from ?? "-" }}</i>
@@ -61,7 +61,7 @@ use App\Models\User;
                 <p><b>From Amount:</b> @if($fromAtolin) {{$swap->atolin_amount}} $ @else {{$swap->token_amount}} {{$swap->token_symbol}} @endif</p>
                 <p><b>To Amount:</b> {{$swap->amountAfterFee()}} @if($fromAtolin) {{$swap->token_symbol}} @else $ @endif</p>
                 <p><b>Swap Fee:</b> {{$swap->fee_amount}}@if($fromAtolin) {{$swap->token_symbol}} @else $ @endif</p>
-                <p><b>@if($fromAtolin) Sent To:</b> {{$swap->cryptoTransaction->to}} @else Received From:</b> {{$swap->cryptoTransaction->from}} @endif </p>
+                <p><b>@if($fromAtolin) Sent To:</b> {{$swap->cryptoTransaction->to ?? ""}} @else Received From:</b> {{$swap->cryptoTransaction->from}} @endif </p>
               </div>
 
               <!-- /.card-body -->

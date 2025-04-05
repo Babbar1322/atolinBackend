@@ -264,6 +264,7 @@ class PaymentInvoiceController extends Controller
             'amount' => 'required|numeric',
             'category' => 'required',
             'date' => 'required',
+            "acctcorpcardexp" => 'required',
             'netsuiteUrl' => 'required',
             'realm' => 'required',
             'consumerKey' => 'required',
@@ -277,6 +278,7 @@ class PaymentInvoiceController extends Controller
             'consumerSecret.required' => 'Consumer Secret is Required',
             'accessToken.required' => 'Access Token is Required',
             'tokenSecret.required' => 'Token Secret is Required',
+            'acctcorpcardexp.required' => 'Account For Corporate Card Expenses is Required',
         ]);
         $url = self::extractUrlParts($request->netsuiteUrl);
         if (!defined('NETSUITE_DEPLOYMENT_URL')) {
@@ -312,9 +314,14 @@ class PaymentInvoiceController extends Controller
 
         $payload = array(
             "email" => $request->email,
-            "amount" => $request->amount,
-            "category" => $request->category,
+            "category" => [
+                [
+                    "category" => $request->category,
+                    "amount" => $request->amount
+                ]
+            ],
             "date" => $request->date,
+            "acctcorpcardexp" => $request->acctcorpcardexp,
         );
 
         $oauth_nonce = md5(mt_rand());
@@ -351,6 +358,94 @@ class PaymentInvoiceController extends Controller
             "Authorization" => $auth_header,
             "Content-Type" => "application/json"
         ])->post(NETSUITE_DEPLOYMENT_URL, $payload);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            if (!$data['success']) {
+                Log::error("NetSuite Error Start " . date('d-m-y h:i:s'));
+                Log::error(json_encode($data));
+                Log::error("NetSuite Error End");
+                return ["status" => false, "data" => $data];
+            }
+            return ["status" => true, "data" => $response->json()];
+        }
+
+        if ($response->failed()) {
+            Log::error("NetSuite Error Start " . date('d-m-y h:i:s'));
+            Log::error(json_encode($response->json()));
+            Log::error("NetSuite Error End");
+            return ["status" => false, "data" => $response->json()];
+        }
+    }
+
+    public function getCategories(Request $request) {
+        $url = self::extractUrlParts("https://4541362-sb1.restlets.api.netsuite.com/app/site/hosting/restlet.nl?script=10267&deploy=1");
+        if (!defined('NETSUITE_DEPLOYMENT_URL')) {
+            define("NETSUITE_DEPLOYMENT_URL", "https://4541362-sb1.restlets.api.netsuite.com/app/site/hosting/restlet.nl?script=10267&deploy=1");
+        }
+        if (!defined('NETSUITE_URL')) {
+            define("NETSUITE_URL", $url['baseUrl']);
+        }
+        if (!defined('NETSUITE_REST_URL')) {
+            define("NETSUITE_REST_URL", $url['fullPath']);
+        }
+        if (!defined('NETSUITE_SCRIPT_ID')) {
+            define("NETSUITE_SCRIPT_ID", $url['scriptId']);
+        }
+        if (!defined('NETSUITE_DEPLOY_ID')) {
+            define("NETSUITE_DEPLOY_ID", $url['deployId']);
+        }
+        if (!defined('NETSUITE_ACCOUNT')) {
+            define("NETSUITE_ACCOUNT", "4541362_SB1");
+        }
+        if (!defined('NETSUITE_CONSUMER_KEY')) {
+            define("NETSUITE_CONSUMER_KEY", "6f61da2b979d3d49e80d28779a248613768327a6b14b1d1f1f28bd3d38ec8940");
+        }
+        if (!defined('NETSUITE_CONSUMER_SECRET')) {
+            define("NETSUITE_CONSUMER_SECRET", "2e02c9d561fb7e7bfffbad9d5acc70a3ba62375b68f696806569f3b971d97814");
+        }
+        if (!defined('NETSUITE_TOKEN_ID')) {
+            define("NETSUITE_TOKEN_ID", "db1bc178d2eef8d7c0128a7f592610eacc454326d40c8195f8329c3d679e3ace");
+        }
+        if (!defined('NETSUITE_TOKEN_SECRET')) {
+            define("NETSUITE_TOKEN_SECRET", "53dc3fe9d909cbc54848f3d7df7537a1f9dade0e9fb409e2aeaa5e21910da8f0");
+        }
+
+
+        $oauth_nonce = md5(mt_rand());
+        $oauth_timestamp = time();
+        $oauth_signature_method = 'HMAC-SHA256';
+        $oauth_version = "1.0";
+
+        $base_string =
+            "GET&" . urlencode(NETSUITE_REST_URL) . "&" .
+            urlencode(
+                "deploy=" . NETSUITE_DEPLOY_ID
+                    . "&oauth_consumer_key=" . NETSUITE_CONSUMER_KEY
+                    . "&oauth_nonce=" . $oauth_nonce
+                    . "&oauth_signature_method=" . $oauth_signature_method
+                    . "&oauth_timestamp=" . $oauth_timestamp
+                    . "&oauth_token=" . NETSUITE_TOKEN_ID
+                    . "&oauth_version=" . $oauth_version
+                    . "&script=" . NETSUITE_SCRIPT_ID
+            );
+
+        $key = rawurlencode(NETSUITE_CONSUMER_SECRET) . '&' . rawurlencode(NETSUITE_TOKEN_SECRET);
+        $signature = base64_encode(hash_hmac("sha256", $base_string, $key, true));
+        $auth_header = 'OAuth '
+            . 'realm="' . rawurlencode(NETSUITE_ACCOUNT) . '",'
+            . 'oauth_consumer_key="' . rawurlencode(NETSUITE_CONSUMER_KEY) . '",'
+            . 'oauth_token="' . rawurlencode(NETSUITE_TOKEN_ID) . '",'
+            . 'oauth_signature_method="' . rawurlencode($oauth_signature_method) . '",'
+            . 'oauth_timestamp="' . rawurlencode($oauth_timestamp) . '",'
+            . 'oauth_nonce="' . rawurlencode($oauth_nonce) . '",'
+            . 'oauth_version="' . rawurlencode($oauth_version) . '",'
+            . 'oauth_signature="' . rawurlencode($signature) . '"';
+
+        $response = Http::withHeaders([
+            "Authorization" => $auth_header,
+            "Content-Type" => "application/json"
+        ])->get(NETSUITE_DEPLOYMENT_URL);
 
         if ($response->successful()) {
             $data = $response->json();

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\API;
 
+use App\CURL\Account;
+use App\CURL\Crypto;
 use App\Models\UserDocument;
 use App\Models\Document;
 use App\Models\Wallet;
@@ -53,103 +55,105 @@ class UserController extends Controller
      */
     public function login(Request $request)
     {
-        try {
-            // return response()->json([
-            //     'message' => 'Login Successfully.',
-            //     'data' => $request->json()->all(),
-            // ]);
-            $data = $request->json()->all();
-            $validator = Validator::make($request->json()->all(), [
-                'country_code' => 'required',
-                'contact' => 'required',
-                'password' => 'required',
-            ]);
-            if ($validator->fails()) {
-                return response()->json([
-                    'message' => 'Email or Password is wrong!',
-                    'error' => $validator->errors(),
-                ], 401);
-            }
+        $validator = Validator::make($request->json()->all(), [
+            'country_code' => 'required',
+            'contact' => 'required',
+            'password' => 'required',
+        ]);
 
-            $user = User::where('country_code', $data['country_code'])->where('contact', $data['contact'])->first();
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Email or Password is wrong!',
+                'error' => $validator->errors(),
+            ], 401);
+        }
 
-            if ($user == null) {
-                return response()->json([
-                    'error' => 'Email or Password is wrong!',
-                ], 401);
-            }
+        $user = User::where('country_code', $request->country_code)->where('contact', $request->contact)->where('status', 1)->first();
 
-            if (Auth::attempt(['contact' => $data['contact'], 'password' => $data['password']])) {
-                if ($user->utype == 'admin') {
-                    return response()->json([
-                        'error' => 'Email or Password is wrong!',
-                    ], 401);
-                } else {
-                    if ($user->otp_verified == 1) {
-                        $token = $user->createToken('auth_token')->plainTextToken;
+        if ($user == null) {
+            return response()->json([
+                'error' => 'Email or Password is wrong!',
+            ], 401);
+        }
 
-                        if (empty($user->priority_id) || $user->priority_id == null) {
-                            $customer = Customer::createCustomer();
-                            if ($customer['status']) {
-                                // Log::info($customer);
-                                // Log::info("Customer Created");
-                                $user->priority_id = $customer['response']['guid'];
-                                // $kyc = KYC::createKYC($customer['response']['guid']);
-                                // Log::info($kyc['response']);
-                                // Log::info("KYC Created");
-                                // if ($kyc['status']) {
-                                //     $user->kyc_id = $kyc['response']['guid'];
-                                // }
-                                $user->save();
-                            }
-                        }
-                        // $user->profile_photo_url = $user->getProfilePhotoUrlAttribute();
-                        $crypto = CryptoWallet::where('user_id', Auth::user()->id)->first();
-                        if (!empty($crypto)) {
-                            $crypto->wallet_address = Encryption::decrypt($crypto->wallet_address);
-                        }
+        if ($user->status == 0) {
+            return response()->json([
+                'error' => 'Email or Password is wrong!',
+            ], 401);
+        }
 
-                        if ($user->kyc_id != null) {
-                            $kyc = KYC::getKYC($user->kyc_id)['response'];
+        // if (!Hash::check($request->password, $user->password)) {
+        //     return response()->json([
+        //         'error' => 'Email or Password is wrong!',
+        //     ], 401);
+        // }
 
-                            if ($kyc['outcome'] === 'passed') {
-                                $banks = ExternalAccount::getAllAccounts($user->priority_id)['response'];
-                                if ($banks['total'] > 0) {
-                                    $userHasBank = true;
-                                } else {
-                                    $userHasBank = false;
-                                }
-                            }
-                        }
+        if ($user->utype == 'admin') {
+            return response()->json([
+                'error' => 'Email or Password is wrong!',
+            ], 401);
+        }
 
-                        return response()->json([
-                            'message' => 'Login Successfully.',
-                            'data' => [
-                                'access_token' => $token,
-                                'token_type' => 'Bearer',
-                                'user_detais' => $user,
-                                'crypto' => $crypto,
-                                'kyc' => !!$user->kyc_id,
-                                'kyc_details' => $kyc ?? null,
-                                'banks' => $userHasBank ?? false
-                            ],
-                        ]);
-                    } else {
-                        return response()->json([
-                            'message' => 'Please Verify OTP before login',
-                            'otp_status' => false,
-                            'error' => 'OTP not verified',
-                            'contact' => $user->contact,
-                        ]);
-                    }
+        if ($user->otp_verified == 0) {
+            return response()->json([
+                'message' => 'Please Verify OTP before login',
+                'otp_status' => false,
+                'error' => 'OTP not verified',
+                'contact' => $user->contact,
+            ], 400);
+        }
+
+        if (Auth::attempt(['contact' => $request->contact, 'password' => $request->password])) {
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            if (empty($user->priority_id) || $user->priority_id == null) {
+                $customer = Customer::createCustomer();
+                if ($customer['status']) {
+                    $user->priority_id = $customer['response']['guid'];
+                    $account = Account::create($customer['response']['guid']);
+                    // Log::info($account);
+                    $user->save();
                 }
             } else {
-
-                return response()->json([
-                    'error' => 'Email or Password is wrong!',
-                ], 401);
+                $accounts = Account::getByUser($user->priority_id);
+                // Log::info($accounts);
+                if ($accounts['status'] && $accounts['response']['total'] == 0) {
+                    $account = Account::create($user->priority_id);
+                    // Log::info($account);
+                }
             }
-        } catch (Exception $e) {
+
+            if (!empty($user->crypto_wallet_id) || $user->crypto_wallet_id != null) {
+                $crypto = Crypto::getAccountById($user->crypto_wallet_id);
+            }
+
+            if ($user->kyc_id != null) {
+                $kyc = KYC::getKYC($user->kyc_id)['response'];
+
+                if ($kyc['outcome'] === 'passed') {
+                    $banks = ExternalAccount::getAllAccounts($user->priority_id)['response'];
+                    $userHasBank = $banks['total'] > 0;
+                }
+            }
+
+            $this->sendMessage($user->contact, $user, $user->country->phonecode);
+
+            return response()->json([
+                'message' => 'Login Successfully.',
+                'data' => [
+                    'access_token' => $token,
+                    'token_type' => 'Bearer',
+                    'user_details' => $user,
+                    'crypto' => $crypto ?? ['status' => false],
+                    'kyc' => !!$user->kyc_id,
+                    'kyc_details' => $kyc ?? null,
+                    'banks' => $userHasBank ?? false
+                ],
+            ]);
+        } else {
+            return response()->json([
+                'error' => 'Email or Password is wrong!',
+            ], 401);
         }
     }
     // public function login(Request $request)
@@ -249,6 +253,130 @@ class UserController extends Controller
     //     } catch (Exception $e) {
     //     }
     // }
+    /**
+     * Register api
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function register(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->json()->all(), [
+                'name' => 'required',
+                'lastname' => 'required',
+                'email' => 'required|email',
+                'contact' => 'required',
+                'password' => 'required',
+                // 'phonecode' => 'required',
+                'c_password' => 'required|same:password',
+                'country_code' => 'required',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Please Check All Fields',
+                    'error' => $validator->errors(),
+                ], 422);
+            } else {
+                $input = $request->json()->all();
+
+                $user = User::where('contact', $input['contact'])->where('utype', 'user')->where('status', '1')->first();
+                $emailUser = User::where('email', $input['email'])->where('utype', 'user')->where('status', '1')->first();
+
+                Log::info("User ".json_encode($user));
+                Log::info("User Email ".json_encode($emailUser));
+
+                if ($user || $emailUser) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'User already exists',
+                    ], 400);
+                }
+
+                $input['password'] = bcrypt($request['password']);
+
+                $user = User::create($input);   //User creation
+                $recipient = $input['contact'];
+                $country_code = $user->country->phonecode;
+                $this->sendMessage($recipient, $user, $country_code);
+
+                $customer = Customer::createCustomer()['response'];
+                $user->priority_id = $customer['guid'];
+
+                $user->save();
+
+                return response()->json([
+                    'message' => 'Registered Successfully.',
+                    'data' => $user,
+                ]);
+            }
+        } catch (Exception $e) {
+            Log::info($e);
+            return response()->json([
+                'error' => 'Internal Server Error'
+            ], 500);
+        }
+    }
+    // public function register(Request $request)
+    // {
+    //     Stripe\Stripe::setApiKey(env('STRIPE_SECRET'));
+    //     $stripe = Stripe::make(env('STRIPE_SECRET'));
+    //     try {
+    //         $data =  $request->json()->all();
+    //         $validator = Validator::make($data['attributes'], [
+    //             'name' => 'required',
+    //             'lastname' => 'required',
+    //             'email' => 'required|email|unique:users',
+    //             'contact' => 'required|unique:users',
+    //             'password' => 'required',
+    //             // 'phonecode' => 'required',
+    //             'c_password' => 'required|same:password',
+    //         ]);
+
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'statusCode' => 401,
+    //                 'success' => false,
+    //                 'msg' => 'Credentials already registered.',
+    //                 'error' => $validator->errors(),
+    //             ]);
+    //         } else {
+    //             $account = \Stripe\Account::create([
+    //                 'type' => 'standard',
+    //                 'country' => 'US',
+    //                 'email' => $request->email,
+    //                 'business_type' =>  'individual',
+    //             ]);
+    //             $customer = \Stripe\Customer::create([
+    //                 'email' => $request->email,
+    //             ]);
+    //             $input = $data['attributes'];
+    //             $input['password'] = bcrypt($data['attributes']['password']);
+    //             $input['stripe_acc_id'] = $account->id;
+    //             $input['stripe_uid'] = $customer['id'];
+    //             $user = User::create($input);   //User creation
+    //             $recipient = $data['attributes']['contact'];
+    //             $country_code = $user->country->phonecode;
+    //             $this->sendMessage($recipient, $user, $country_code);
+
+    //             return response()->json([
+    //                 'statusCode' => 200,
+    //                 'success' => true,
+    //                 'msg' => 'Registered Successfully.',
+    //                 'data' => [
+    //                     'user_detais' => $user,
+    //                 ],
+    //             ]);
+    //         }
+    //     } catch (Exception $e) {
+    //         return response()->json([
+    //             'statusCode' => 500,
+    //             'success' => false,
+    //             'msg' => 'Something went wrong'
+    //         ]);
+    //     }
+    // }
 
     public function me(Request $request)
     {
@@ -326,127 +454,6 @@ class UserController extends Controller
             ], 400);
         }
     }
-    /**
-     * Register api
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function register(Request $request)
-    {
-        try {
-            $validator = Validator::make($request->json()->all(), [
-                'name' => 'required',
-                'lastname' => 'required',
-                'email' => 'required|email|unique:users',
-                'contact' => 'required|unique:users',
-                'password' => 'required',
-                // 'phonecode' => 'required',
-                'c_password' => 'required|same:password',
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'message' => 'Please Check All Fields',
-                    'error' => $validator->errors(),
-                ], 422);
-            } else {
-                $input = $request->json()->all();
-
-                // $user_email = explode('.', $input['email']);
-
-                // $user_db = User::where('email', 'like', "%$user_email[0]%")->first();
-
-                // if ($user_db != null && strpos($input['email'], '.') !== false) {
-                //     return response()->json(['success' => false, 'error' => 'User Already Exist'], 422);
-                // }
-                $input['password'] = bcrypt($request['password']);
-                // $input['priority_id'] = $customer['id'];
-                $user = User::create($input);   //User creation
-                $recipient = $input['contact'];
-                $country_code = $user->country->phonecode;
-                $this->sendMessage($recipient, $user, $country_code);
-
-                $customer = Customer::createCustomer()['response'];
-                $user->priority_id = $customer['guid'];
-                // $kyc = KYC::createKYC($customer['guid']);
-                // if ($kyc['status']) {
-                //     $user->kyc_id = $kyc['response']['guid'];
-                // }
-
-                $user->save();
-
-                return response()->json([
-                    'message' => 'Registered Successfully.',
-                    'data' => $user,
-                ]);
-            }
-        } catch (Exception $e) {
-            Log::info($e);
-            return response()->json([
-                'error' => 'Something went wrong'
-            ], 400);
-        }
-    }
-    // public function register(Request $request)
-    // {
-    //     Stripe\Stripe::setApiKey(env('STRIPE_SECRET'));
-    //     $stripe = Stripe::make(env('STRIPE_SECRET'));
-    //     try {
-    //         $data =  $request->json()->all();
-    //         $validator = Validator::make($data['attributes'], [
-    //             'name' => 'required',
-    //             'lastname' => 'required',
-    //             'email' => 'required|email|unique:users',
-    //             'contact' => 'required|unique:users',
-    //             'password' => 'required',
-    //             // 'phonecode' => 'required',
-    //             'c_password' => 'required|same:password',
-    //         ]);
-
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'statusCode' => 401,
-    //                 'success' => false,
-    //                 'msg' => 'Credentials already registered.',
-    //                 'error' => $validator->errors(),
-    //             ]);
-    //         } else {
-    //             $account = \Stripe\Account::create([
-    //                 'type' => 'standard',
-    //                 'country' => 'US',
-    //                 'email' => $request->email,
-    //                 'business_type' =>  'individual',
-    //             ]);
-    //             $customer = \Stripe\Customer::create([
-    //                 'email' => $request->email,
-    //             ]);
-    //             $input = $data['attributes'];
-    //             $input['password'] = bcrypt($data['attributes']['password']);
-    //             $input['stripe_acc_id'] = $account->id;
-    //             $input['stripe_uid'] = $customer['id'];
-    //             $user = User::create($input);   //User creation
-    //             $recipient = $data['attributes']['contact'];
-    //             $country_code = $user->country->phonecode;
-    //             $this->sendMessage($recipient, $user, $country_code);
-
-    //             return response()->json([
-    //                 'statusCode' => 200,
-    //                 'success' => true,
-    //                 'msg' => 'Registered Successfully.',
-    //                 'data' => [
-    //                     'user_detais' => $user,
-    //                 ],
-    //             ]);
-    //         }
-    //     } catch (Exception $e) {
-    //         return response()->json([
-    //             'statusCode' => 500,
-    //             'success' => false,
-    //             'msg' => 'Something went wrong'
-    //         ]);
-    //     }
-    // }
 
     public function kyc()
     {
@@ -462,8 +469,12 @@ class UserController extends Controller
             if (isset($newKyc) && isset($newKyc['response']['guid'])) {
                 $kyc = KYC::getKYC($newKyc['response']['guid']);
             }
+            if ($kyc['response']['state'] === 'completed' && $kyc['response']['outcome'] === 'passed') {
+                $user->kyc_status = 'APPROVED';
+                $user->save();
+            }
             return response()->json([
-                'statusCode' => 200,
+                'kycStatus' => $user->kyc_status,
                 'success' => true,
                 'msg' => 'KYC Details',
                 'data' => $kyc['response'],
@@ -482,22 +493,22 @@ class UserController extends Controller
             return '+' . $obj["phonecode"];
         }, $country_codes->toArray());
         $return_array = $request->usercontacts;
-        $result = array();
         foreach ($request->usercontacts as $key => $value) {
             foreach ($value['phoneNumbers'] as $numberKey => $number) {
                 if (strpos($number, '+') === 0) {
                     // Log::info(str_replace($codes, '', $number));
                     $number = str_replace($codes, '', $number);
                 }
-                $user = User::where('contact', $number)->select('contact', 'name', 'lastname', 'profile_photo_path', 'stripe_acc_id')->first();
+                $user = User::where('contact', $number)->select('contact', 'name', 'lastname', 'profile_photo_path', 'priority_id', 'crypto_wallet_id')->first();
                 if ($user) {
-                    $return_array[$key]['registered_users'] = true;
+                    $return_array[$key]['registered_user'] = true;
                     $return_array[$key]['name'] = $user->name . " " . $user->lastname;
                     $return_array[$key]['profile_photo_url'] = $user->getProfilePhotoUrlAttribute();
                     $return_array[$key]['contact'] = $user->contact;
-                    $return_array[$key]['stripe_acc_id'] = $user->stripe_acc_id;
+                    $return_array[$key]['priority_id'] = $user->priority_id;
+                    $return_array[$key]['crypto_wallet_id'] = $user->crypto_wallet_id;
                 } else {
-                    $return_array[$key]['registered_users'] = false;
+                    $return_array[$key]['registered_user'] = false;
                 }
             }
         }
@@ -561,6 +572,25 @@ class UserController extends Controller
         }
     }
 
+    public function sendLoginOTP(Request $request) {
+        $user = Auth::user();
+
+        // Don't allow OTP to be sent again within 3 minute
+        $currentTime = Carbon::now();
+        $diff = $currentTime->diffInMinutes($user->updated_at);
+        if ($diff < 3) {
+            return response()->json([
+                'message' => "You can't send OTP before 3 minutes",
+            ], 422);
+        }
+
+        $this->sendMessage($user->contact, $user, $user->country->phonecode);
+
+        return response()->json([
+            'message' => 'OTP sent',
+        ]);
+    }
+
     public function resendOTP(Request $request)
     {
         $validator = Validator::make($request->json()->all(), [
@@ -572,7 +602,7 @@ class UserController extends Controller
         }
 
         $contact = $request['contact'];
-        $user = User::where('contact', $contact)->first();
+        $user = User::where('contact', $contact)->where('status', 1)->first();
         if ($user) {
             $currentTime = Carbon::now();
             $diff = $currentTime->diffInMinutes($user->updated_at);
@@ -598,7 +628,7 @@ class UserController extends Controller
             // $client = new Client($account_sid, $auth_token);
             // $client->messages->create($to, ['from' => $twilio_number, 'body' => $msg]);
             return response()->json([
-                'message' => 'OTP sent again.',
+                'message' => 'OTP sent',
             ]);
         } else {
             return response()->json([
@@ -621,17 +651,18 @@ class UserController extends Controller
             ], 422);
         }
 
-        $user = User::where('contact', $data['contact'])->first();
+        $user = User::where('contact', $data['contact'])->where('status', 1)->first();
         if ($user) {
-            if ($data['otp'] === 121212) {
-                $user->otp_verified = "1";
-                $user->save();
-                return response()->json([
-                    'message' => 'OTP verified successfully.',
-                ]);
-            }
+            // if ($data['otp'] === 121212) {
+            //     $user->otp_verified = "1";
+            //     $user->save();
+            //     return response()->json([
+            //         'message' => 'OTP verified successfully.',
+            //     ]);
+            // }
             if (Hash::check($data['otp'], $user->otp)) {
                 $user->otp_verified = "1";
+                $user->otp = '';
                 $user->save();
                 return response()->json([
                     'message' => 'OTP verified successfully.',
@@ -680,7 +711,7 @@ class UserController extends Controller
                     'error' => $validator->errors(),
                 ], 422);
             }
-            $user = User::where('contact', $data['contact'])->where('utype', 'user')->first();
+            $user = User::where('contact', $data['contact'])->where('utype', 'user')->where('status', '1')->first();
             // $country = Country::where('id',$user['country_code'])->first();
             // $phonecode = $country->phonecode;
 
@@ -774,23 +805,23 @@ class UserController extends Controller
     {
         //validator place
         $data = $request->json()->all();
-        $users = Auth::user();
-        //$users = user::find($id);
-        $users->name = $data['name'];
-        $users->lastname = $data['lastname'];
-        $users->email = $data['email'];
-        $users->save();
+        $user = Auth::user();
+
+        $user->name = $data['name'];
+        $user->lastname = $data['lastname'];
+        $user->email = $data['email'];
+        $user->save();
 
         return response()->json([
             'message' => 'Profile Updated Successfully.',
-            'user_details' => $users
+            'user_details' => $user
         ]);
     }
 
     public function profileImageUpdate(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'profile_photo_path' => 'required',
+            'profile_photo_path' => 'required|image|mimes:png,jpg,jpeg|max:2048',
         ]);
         if ($validator->fails()) {
             return response()->json([
@@ -798,7 +829,7 @@ class UserController extends Controller
                 'error' => $validator->errors(),
             ], 422);
         } else {
-            $users = Auth::user();
+            $user = Auth::user();
 
             if ($request->hasFile('profile_photo_path')) {
                 $file = $request->file('profile_photo_path');
@@ -809,11 +840,12 @@ class UserController extends Controller
                     $imageName
                 );
                 //store your file into directory and db
-                $users->profile_photo_path = $imageName;
-                $users->save();
+                $user->profile_photo_path = $imageName;
+                $user->save();
 
                 return response()->json([
                     'message' => 'Profile Image Updated Successfully.',
+                    'user' => $user
                 ]);
             }
         }
@@ -827,7 +859,36 @@ class UserController extends Controller
         $user->profile_photo_path = null;
         $user->save();
         $user->profile_photo_url = $user->getProfilePhotoUrlAttribute();
-        return response()->json(['success' => true, 'user' => $user, 'file' => $file]);
+        return response()->json(['message' => 'Image Uploaded Successfully', 'user' => $user]);
+    }
+
+    public function changePassword(Request $request)
+    {
+        $validator = Validator($request->all(), [
+            'old_password' => 'required',
+            'new_password' => 'required',
+            'confirm_password' => 'required|same:new_password',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => $validator->errors(),
+            ], 422);
+        }
+
+        $user = Auth::user();
+        if (Hash::check($request->old_password, $user->password)) {
+            $user->password = bcrypt($request->new_password);
+            $user->save();
+            return response()->json([
+                'message' => 'Password Updated Successfully.',
+                'user' => $user
+            ]);
+        } else {
+            return response()->json([
+                'error' => 'Old Password does not match',
+            ], 401);
+        }
     }
 
     /**
@@ -852,7 +913,7 @@ class UserController extends Controller
         } else {
 
 
-            $get_user_details = User::where('email', $data['attributes']['user_source'])->orWhere('contact', $data['attributes']['user_source'])->first();
+            $get_user_details = User::where('email', $data['user_source'])->orWhere('contact', $data['user_source'])->first();
 
             return response()->json([
                 'message' => 'User Details retrieved successfully.',
@@ -895,7 +956,7 @@ class UserController extends Controller
         $user = User::find(Auth::user()->id);
 
         $balance = Wallet::balance($user->id);
-        Log::info("Balance: " . $balance);
+
         $bank = ExternalAccount::getAccountById($request->bank_id);
         if (!$bank['status']) {
             return response()->json([
@@ -1075,17 +1136,18 @@ class UserController extends Controller
     public function withdrawhistory()
     {
         $user = Auth::user();
-        $history = WithdrawalRequest::where('user_id', $user->id)->get();
+        $history = WithdrawalRequest::where('user_id', $user->id)->orderBy('created_at', 'desc')->paginate(10);
         return response()->json([
             'history' => $history,
             'message' => 'History Fetched successfully',
+            'user' => $user->id,
         ]);
     }
 
     public function storeNotifications(Request $request)
     {
         $user = Auth::user();
-        if ($request->status == 0) {
+        if ($request->status == 1) {
             $user->notifications_settings = 'ENABLED';
         } else {
             $user->notifications_settings = 'DISABLED';
@@ -1100,16 +1162,60 @@ class UserController extends Controller
     public function getNotifications()
     {
         try {
+            $cutoff = Carbon::now()->subDays(7);
             $user = Auth::user();
-            $allnotifications = NotificationUser::select('user_id', 'message', 'created_at')->with('user')->where('user_id', $user->id)->orWhere('receiver_id', $user->id)->get();
+            $allnotifications = NotificationUser::select('user_id', 'message', 'created_at')
+                ->with('user')
+                ->where(function ($query) use ($user) {
+                    $query->where('user_id', $user->id)
+                        ->orWhere('receiver_id', $user->id);
+                })
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $recent = $allnotifications->where('created_at', '>=', $cutoff);
+            $older = $allnotifications->where('created_at', '<', $cutoff);
+
+            $grouped = collect()
+                ->merge(
+                    $this->groupByDate($recent, 'Y-m-d', 'd F Y') // Recent groups (daily)
+                )
+                ->merge(
+                    $this->groupByDate($older, 'Y-m-01', 'F Y') // Older groups (monthly)
+                )
+                ->values();
+
             return response()->json([
                 'message' => 'Notifications get Successfully',
                 'notification' => $user->notifications_settings,
-                'user_notifications' => $allnotifications,
+                'user_notifications' => $grouped,
             ]);
         } catch (Exception $e) {
             \Log::info($e);
         }
+    }
+
+    private function groupByDate($notifications, $groupKeyFormat, $displayFormat)
+    {
+        return $notifications
+            ->groupBy(function ($item) use ($groupKeyFormat) {
+                return $item->created_at->format($groupKeyFormat);
+            })
+            ->map(function ($group, $key) use ($displayFormat, $groupKeyFormat) {
+                return [
+                    'title' => Carbon::createFromFormat($groupKeyFormat, $key)->format($displayFormat),
+                    'data' => $group->map(function ($notification) {
+                        return [
+                            'id' => $notification->id,
+                            'message' => $notification->message,
+                            'timestamp' => $notification->created_at->toIso8601String(),
+                            'user' => $notification->user // Assuming User resource exists
+                        ];
+                    })
+                ];
+            })
+            ->sortByDesc('group_date') // Sort groups descending
+            ->values();
     }
 
     public function storePrivacy(Request $request)
@@ -1231,31 +1337,30 @@ class UserController extends Controller
     public function createPaymentPin(Request $request)
     {
         $data = $request->json()->all();
-        $users = Auth::user();
 
         $validator = Validator::make($data, [
             'payment_pin' => 'required',
-            'c_payment_pin' => 'required',
+            'c_payment_pin' => 'required|same:payment_pin',
         ]);
+        $users = Auth::user();
 
         if ($validator->fails()) {
             return response()->json([
                 'message' => 'Please enter the Pin.',
-                'error' => $validator->errors(),
+                'error' => $validator->errors()->first(),
             ], 422);
+        }
+        if ($data['payment_pin'] == $data['c_payment_pin']) {
+            $users->payment_pin = bcrypt($data['payment_pin']);
+            $users->save();
+            return response()->json([
+                'message' => 'PIN Updated Successfully.',
+                'user' => $users,
+            ]);
         } else {
-            if ($data['payment_pin'] == $data['c_payment_pin']) {
-                $users->payment_pin = bcrypt($data['payment_pin']);
-                $users->save();
-                return response()->json([
-                    'message' => 'PIN Updated Successfully.',
-                    'user' => $users,
-                ]);
-            } else {
-                return response()->json([
-                    'error' => 'Please Check the PIN and Confirm PIN.',
-                ], 422);
-            }
+            return response()->json([
+                'error' => 'Please Check the PIN and Confirm PIN.',
+            ], 422);
         }
     }
 
@@ -1279,7 +1384,7 @@ class UserController extends Controller
         $validator = Validator::make($data, [
             'old_payment_pin' => 'required',
             'payment_pin' => 'required',
-            'c_payment_pin' => 'required',
+            'c_payment_pin' => 'required|same:payment_pin',
         ]);
 
         if ($validator->fails()) {
@@ -1289,21 +1394,21 @@ class UserController extends Controller
             ], 422);
         } else {
             $get_user_pin = User::select('payment_pin')->where('id', $users->id)->first();
-            if (Hash::check($data['attributes']['old_payment_pin'], $get_user_pin->payment_pin)) {
-                if ($data['attributes']['payment_pin'] == $data['attributes']['c_payment_pin'] && $data['attributes']['old_payment_pin'] != $data['attributes']['payment_pin']) {
-                    $users->payment_pin = bcrypt($data['attributes']['payment_pin']);
+            if (Hash::check($data['old_payment_pin'], $get_user_pin->payment_pin)) {
+                if (!Hash::check($data['payment_pin'], $get_user_pin->payment_pin)) {
+                    $users->payment_pin = bcrypt($data['payment_pin']);
                     $users->save();
                     return response()->json([
                         'message' => 'PIN Updated Successfully.',
                     ]);
                 } else {
                     return response()->json([
-                        'error' => 'Something went wrong',
+                        'error' => 'Old Pin and New Pin cannot be same.',
                     ], 422);
                 }
             } else {
                 return response()->json([
-                    'error' => 'Please Check the PIN and Confirm PIN Or The Old and New PIN are Same.',
+                    'error' => 'Old Pin was incorrect.',
                 ], 422);
             }
         }

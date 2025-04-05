@@ -4,6 +4,7 @@ namespace App\CURL;
 
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class Customer
 {
@@ -13,6 +14,11 @@ class Customer
             return ['status' => true, 'response' => $response->json()];
         }
         if ($response->failed()) {
+            if (env('LOG_CYBRID')) {
+                Log::info("Cybrid Error in Customer.php");
+                Log::info($response->json());
+                Log::info("================================");
+            }
             if (!empty($response->json()['errorMessage'])) {
                 return ['status' => false, 'response' => $response->json()['errorMessage']];
             }
@@ -30,7 +36,7 @@ class Customer
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->post('https://bank.sandbox.cybrid.app/api/customers', $data);
+        ])->post(config('cybrid.api').'/customers', $data);
         // \Log::info($response);
         return self::returnData($response);
     }
@@ -43,7 +49,7 @@ class Customer
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get("https://bank.sandbox.cybrid.app/api/customers/{$id}");
+        ])->get(config('cybrid.api')."/customers/{$id}");
         return self::returnData($response);
     }
 

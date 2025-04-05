@@ -43,6 +43,7 @@ use App\Models\User;
                                         <th>Name</th>
                                         <th>Email</th>
                                         <th>Contact</th>
+                                        <th>Cybrid Account</th>
                                         <th>Register Date</th>
                                         <th>More Details</th>
 
@@ -52,17 +53,18 @@ use App\Models\User;
                                     @foreach ($getUsers as $key => $getUser)
                                         <tr>
                                             <td>{{ $key + 1 }} </td>
-                                            <td> <b>{{ $getUser->name . ' ' . $getUser->lastname }}</b></td>
-                                            <td>{{ $getUser->email }}</td>
-                                            <td>{{ $getUser->contact }}</td>
-                                            <td>{{ $getUser->created_at->format('d-M-Y h:i:s') }}</td>
+                                            <td> <b>{{ $getUser->name ?? "Deleted" . ' ' . ($getUser->lastname ?? "User") }}</b></td>
+                                            <td>{{ $getUser->email ?? "-" }}</td>
+                                            <td>{{ $getUser->contact ?? "-" }}</td>
+                                            <td>{{ $getUser->priority_id ?? "-" }}</td>
+                                            <td>{{ $getUser->created_at->format('d-M-Y h:i:s') ?? "" }}</td>
                                             <td>
-                                                <a href="/user/{{ ucfirst($getUser->id) }}"
+                                                <a href="/user/{{ ucfirst($getUser->id ?? 0) }}"
                                                     class="btn btn-info">View</a>
-                                                <a href="{{ route('sendBalance', $getUser->id) }}"
+                                                <a href="{{ route('sendBalance', $getUser->id ?? 0) }}"
                                                     class="btn btn-primary">Send Balance</a>
-                                                <form action="{{ route('delete-user', ['id' => $getUser->id]) }}"
-                                                    method="post" onsubmit="return confirm('Do you really want to delete this user?\n{{$getUser->name . ' ' . $getUser->lastname}}');">
+                                                <form action="{{ route('delete-user', ['id' => $getUser->id ?? 0]) }}"
+                                                    method="post" onsubmit="return confirm('Do you really want to delete this user?\n{{$getUser->name ?? 'Deleted' . ' ' . ($getUser->lastname ?? 'User')}}');">
                                                     @method('delete')
                                                     @csrf
                                                     <button type="submit" class="btn btn-danger">Delete User</button>

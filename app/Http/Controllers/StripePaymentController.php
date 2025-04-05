@@ -5,6 +5,7 @@
 namespace App\Http\Controllers;
 
 use App\CURL\Account;
+use App\CURL\Crypto;
 use App\CURL\Customer;
 use App\CURL\Card;
 use App\CURL\ExternalAccount;
@@ -361,6 +362,7 @@ class StripePaymentController extends Controller
         $validator = Validator::make($request->all(), [
             'account_id' => 'required',
             'token' => 'required',
+            'bank_name' => 'required',
         ]);
 
         if ($validator->fails()) {
@@ -373,7 +375,7 @@ class StripePaymentController extends Controller
             if ($userKYC['status'] && $userKYC['response']['total'] === 0) {
                 return response()->json(['error' => 'User KYC not verified.'], 400);
             }
-            $res = ExternalAccount::addExternalAccount($user->priority_id, $request->account_id, $request->token);
+            $res = ExternalAccount::addExternalAccount($user->priority_id, $request->account_id, $request->token, $request->bank_name);
             if (!$res['status']) {
                 return response()->json(['error' => $res['response']], 422);
             }
@@ -609,9 +611,20 @@ class StripePaymentController extends Controller
             if (!$ListallBanks['status']) {
                 return response()->json(['error' => $ListallBanks['response']], 422);
             }
+            $bankVerifications = KYC::getBankVerifications($user->priority_id);
+            $banksKYC = [];
+            if ($bankVerifications['status']) {
+                foreach ($bankVerifications['response']['objects'] as $bank) {
+                    $banksKYC[$bank['external_bank_account_guid']] = [
+                        'state' => $bank['state'],
+                        'kyc_id' => $bank['guid'],
+                        'outcome' => $bank['outcome'],
+                    ];
+                }
+            }
             foreach ($ListallBanks['response']['objects'] as &$bank) {
                 if ($bank['state'] === 'refresh_required') {
-                    $token = Workflow::getUpdateToken($user->priority_id, $bank['guid']);
+                    $token = Workflow::getUpdateToken($user->priority_id, $bank['guid'], $request->platform);
                     if (!$token['status']) {
                         return response()->json(['error' => $token['response']], 422);
                     }
@@ -627,9 +640,15 @@ class StripePaymentController extends Controller
                     // Update the refresh token in the original array
                     $bank['refresh_token'] = $workflow['plaid_link_token'];
                 }
+                if ($bank['state'] === 'unverified') {
+                    KYC::verifyBankAccount($user->priority_id, $bank['guid']);
+                }
+                if (isset($banksKYC[$bank['guid']])) {
+                    $bank['kyc'] = $banksKYC[$bank['guid']];
+                }
             }
 
-            return response()->json(['message' => 'Accounts Listed Successfully.', 'data' => $ListallBanks['response']], 200);
+            return response()->json(['message' => 'Accounts Listed Successfully.', 'data' => $ListallBanks['response'], 'banks' => $banksKYC], 200);
         } catch (Stripe\Exception\InvalidRequestException $e) {
             return response()->json(['error' => $e->getMessage()], 401);
         }
@@ -687,7 +706,7 @@ class StripePaymentController extends Controller
         //     $existingToken = Workflow::getOne($doesWorkflowExist['response']['objects'][0]['guid']);
         //     return response()->json(['success' => true, 'message' => 'Token Already Exists.', 'data' => $existingToken['response']], 200);
         // }
-        $workflow = Workflow::createWorkflow($request->user()->priority_id);
+        $workflow = Workflow::createWorkflow($request->user()->priority_id, $request->platform ?? 'android');
         if ($workflow['status']) {
             $token = Workflow::getOne($workflow['response']['guid']);
             if ($token['status']) {
@@ -696,8 +715,8 @@ class StripePaymentController extends Controller
                 }
                 $existing = Workflow::getByCustomer($request->user()->priority_id);
                 if ($existing['status']) {
-                    $existingToken = Workflow::getOne($existing['response']['objects'][0]);
-                    return response()->json(['success' => true, 'message' => 'Token Generated Successfully.', 'data' => $existingToken['respones']]);
+                    $existingToken = Workflow::getOne($existing['response']['objects'][0]['guid']);
+                    return response()->json(['success' => true, 'message' => 'Token Generated Successfully.', 'data' => $existingToken['response']]);
                 }
             }
             return response()->json(['error' => $token['response']], 400);
@@ -980,8 +999,6 @@ class StripePaymentController extends Controller
             $validator = Validator::make($request->all(), [
                 'amount' => 'required',
                 'source' => 'required',
-                'currency' => 'required',
-                'type' => 'required',
             ]);
             if ($validator->fails()) {
                 return response()->json(['error' => $validator->errors()], 422);
@@ -998,6 +1015,12 @@ class StripePaymentController extends Controller
             $destAccount = '';
             if ($userAccount['status'] && $userAccount['response']['total'] > 0) {
                 $destAccount = $userAccount['response']['objects'][0]['guid'];
+            } else {
+                $account = Account::create($user->priority_id);
+                if (!$account['status']) {
+                    return response()->json(['error' => $account['response']], 422);
+                }
+                $destAccount = $account['response']['guid'];
             }
             $externalAccount = ExternalAccount::getAccountById($request->source);
             if ($externalAccount['status']) {
@@ -1015,7 +1038,7 @@ class StripePaymentController extends Controller
             }
             // return response()->json(["error" => $destAccount], 422);
 
-            $transaction = Transaction::collectToMainAccount($amount, $user->priority_id, $request->source, $deposit_fee, $destAccount);
+            $transaction = Transaction::deposit($user->priority_id, $destAccount, $request->source, $amount, $deposit_fee);
             if (!$transaction['status']) {
                 return response()->json(['error' => $transaction['response'], "type" => "Collect to Main Account"], 422);
             }
@@ -1039,7 +1062,7 @@ class StripePaymentController extends Controller
                     'stripe_uid' => $user->priority_id,
                     'card_id' => $request->source,
                     'amount' => $userTransaction['amount'] / 100,
-                    'currency' => $request->currency,
+                    'currency' => 'USD',
                     't_type' => 'debit',
                     'request_at' => new \DateTime(),
                     'created_at' => new \DateTime()
@@ -1179,11 +1202,11 @@ class StripePaymentController extends Controller
             $event_type = $type[0];
             $event_status = $type[1];
 
-            // Log::info("============EVENT===============");
-            // Log::info($request->all());
-            // Log::info("============EVENT===============");
-            // Log::info($event_type . ' ' . $event_status);
-            // Log::info("============EVENT===============");
+//             Log::info("============EVENT===============");
+//             Log::info($request->all());
+//             Log::info("============EVENT===============");
+//             Log::info($event_type . ' ' . $event_status);
+//             Log::info("============EVENT===============");
 
             if ($event_type == 'identity_verification') {
                 // Log::info("============KYC EVENT===============");
@@ -1194,8 +1217,17 @@ class StripePaymentController extends Controller
                     if ($kyc['status'] && $kyc['response']['type'] === 'kyc') {
                         if ($kyc['response']['outcome'] === 'passed') {
                             $customer_id = $kyc['response']['customer_guid'];
-                            // $user = User::where('priority_id', $customer_id)->first();
+                            $user = User::where('priority_id', $customer_id)->first();
                             Account::create($customer_id);
+                            $user->kyc_id = $kyc['response']['guid'];
+                            $user->kyc_status = 'APPROVED';
+                            $user->save();
+                            // Crypto::createAccount($customer_id);
+                        } else {
+                            $user = User::where('priority_id', $kyc['response']['customer_guid'])->first();
+                            $user->kyc_id = $kyc['response']['guid'];
+                            $user->kyc_status = 'REJECTED';
+                            $user->save();
                         }
                     }
                 }

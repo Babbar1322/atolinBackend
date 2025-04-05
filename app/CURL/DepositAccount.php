@@ -5,7 +5,7 @@ namespace App\CURL;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class Quote
+class DepositAccount
 {
     public static function returnData($response)
     {
@@ -14,7 +14,7 @@ class Quote
         }
         if ($response->failed()) {
             if (env('LOG_CYBRID')) {
-                Log::info("Cybrid Error in Quote.php");
+                Log::info("Cybrid Error in DepositAccount.php");
                 Log::info($response->json());
                 Log::info("================================");
             }
@@ -25,43 +25,50 @@ class Quote
         }
     }
 
-    public static function createQuote($id)
+    public static function getByUser($id)
     {
+        $token = Auth::getToken('deposit_bank_accounts', 'read');
+        if ($token['status'] == false) {
+            return self::returnData($token);
+        }
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get(config('cybrid.api').'/deposit_bank_accounts?customer_guid='.$id);
+        return self::returnData($response);
+    }
+
+    public static function getById($id)
+    {
+        $token = Auth::getToken('deposit_bank_accounts', 'read');
+        if ($token['status'] == false) {
+            return self::returnData($token);
+        }
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $token['response']['access_token'],
+        ])->get(config('cybrid.api')."/deposit_bank_accounts/{$id}");
+        return self::returnData($response);
+    }
+
+    public static function create($id, $account_id)
+    {
+        $token = Auth::getToken('deposit_bank_accounts', 'execute');
+        if ($token['status'] == false) {
+            return self::returnData($token);
+        }
+        $accounts = self::getByUser($id)['response']['total'];
+        if ($accounts > 0) {
+            return;
+        }
         $data = [
-            'type' => 'kyc',
-            'method' => 'id_and_selfie',
-            'customer_guid' => $id
+            'type' => 'main',
+            'customer_guid' => $id,
+            'account_guid' => $account_id,
+            'asset' => 'USD',
+            'name' => 'Main Account'
         ];
-        $token = Auth::getToken('identity_verifications', 'execute');
-        if ($token['status'] == false) {
-            return $token;
-        }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->post(config('cybrid.api').'/identity_verifications', $data);
-        return self::returnData($response);
-    }
-
-    public static function getKYC($id)
-    {
-        $token = Auth::getToken('identity_verifications', 'read');
-        if ($token['status'] == false) {
-            return $token;
-        }
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get(config('cybrid.api')."/identity_verifications/{$id}");
-        return self::returnData($response);
-    }
-
-    public static function getVerifiedByUser($id) {
-        $token = Auth::getToken('identity_verifications', 'read');
-        if ($token['status'] == false) {
-            return $token;
-        }
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get(config('cybrid.api')."/identity_verifications?customer_guid={$id}&state=completed");
+        ])->post(config('cybrid.api')."/deposit_bank_accounts", $data);
         return self::returnData($response);
     }
 }

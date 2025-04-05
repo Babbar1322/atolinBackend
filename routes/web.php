@@ -84,3 +84,6 @@ Route::get('/payment', [PaymentInvoiceController::class, 'showForm'])->name('pay
 Route::post('/payment', [PaymentInvoiceController::class, 'makePayment'])->name('makePayment');
 Route::get('/payment-card', [PaymentInvoiceController::class, 'showCardForm'])->name('pay-card');
 Route::post('/payment-card', [PaymentInvoiceController::class, 'makeCardPayment'])->name('makeCardPayment');
+Route::get('redirect', function() {
+    return view('redirect');
+});

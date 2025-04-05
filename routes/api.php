@@ -10,6 +10,7 @@ use App\Http\Controllers\FaqController;
 use App\Http\Controllers\UserfeedbackController;
 use App\Http\Controllers\Google2FAController;
 use App\Http\Controllers\ApiController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PaymentInvoiceController;
 
 /*
@@ -39,6 +40,7 @@ Route::group(['middleware' => 'checkApp'], function () {
 
     Route::group(['middleware' => 'auth:sanctum'], function () {
         Route::get('me', [UserController::class, 'me']);
+        Route::post('sendloginotp', [UserController::class, 'sendLoginOTP'])->name('sendloginotp.api');
 
         // Route::get('details', [UserController::class, 'details'])->name('details.api');
 
@@ -55,6 +57,8 @@ Route::group(['middleware' => 'checkApp'], function () {
         Route::post('profileimageupdate', [UserController::class, 'profileImageUpdate'])->name('profileimageupdate.api');
 
         Route::delete('deleteProfilePhoto', [UserController::class, 'deleteProfilePhoto']);
+
+        Route::post('change-password', [UserController::class, 'changePassword'])->name('changepassword.api');
 
         Route::post('savefeedback', [UserfeedbackController::class, 'store'])->name('savefeedback.api');
 
@@ -85,7 +89,7 @@ Route::group(['middleware' => 'checkApp'], function () {
 
         Route::post('/appuserpin', [UserController::class, 'appuserpin']);
 
-        Route::post('validateapppin', [UserController::class, 'validateAppPin']);
+        // Route::post('validateapppin', [UserController::class, 'validateAppPin']);
 
         Route::post('gfavalidateotp', [Google2FAController::class, 'gfavalidateotp']);
 
@@ -108,7 +112,7 @@ Route::group(['middleware' => 'checkApp'], function () {
 
         Route::post('transfermoney', [StripePaymentController::class, 'transfer'])->name('transfer.post');
 
-        Route::get('getallnotifications', [UserController::class, 'getallnotifications'])->name('getallnotifications.get');
+        // Route::get('getallnotifications', [UserController::class, 'getallnotifications'])->name('getallnotifications.get');
         //updatenotification
         Route::get('updatenotificationstatus', [UserController::class, 'updatenotificationstatus'])->name('updatenotificationstatus.post');
 
@@ -173,16 +177,21 @@ Route::group(['middleware' => 'checkApp'], function () {
 
         // Crypto Wallet
         Route::post('create-wallet', [ApiController::class, 'createCryptoWallet']);
-        Route::post('import-wallet', [ApiController::class, 'importWallet']);
+        Route::post('crypto-price', [ApiController::class, 'cryptoPrice']);
+        Route::post('crypto-withdraw', [ApiController::class, 'cryptoWithdraw']);
+        // Route::post('import-wallet', [ApiController::class, 'importWallet']);
+        Route::post('add-external-wallet', [ApiController::class, 'addExternalWallet']);
+        Route::post('delete-external-wallet', [ApiController::class, 'deleteExternalWallet']);
         Route::post('verify-wallet', [ApiController::class, 'verifyWallet']);
         Route::post('crypto-balance', [ApiController::class, 'getCryptoBalance']);
-        Route::post('crypto-balance-by-address', [ApiController::class, 'getBalanceByAddress']);
+        // Route::post('crypto-balance-by-address', [ApiController::class, 'getBalanceByAddress']);
         // Route::post('send-bnb', [ApiController::class, 'sendBNB']);
         // Route::post('send-token', [ApiController::class, 'sendToken']);
         Route::post('transferCrypto', [ApiController::class, 'transferCrypto']);
         Route::get('crypto-history', [ApiController::class, 'transactionHistory']);
         Route::post('check-address', [ApiController::class, 'checkAddress']);
         Route::post('swap-token', [ApiController::class, 'swapToken']);
+        Route::get('swap-history', [ApiController::class, 'swapHistory']);
         Route::post('switch-network', [ApiController::class, 'switchNetwork']);
     });
     //Route::get('test-api', [ApiController::class, 'test_api']);
@@ -203,3 +212,4 @@ Route::group(['middleware' => 'checkApp'], function () {
 
 Route::any('transactionUpdate', [StripePaymentController::class, 'transactionUpdate'])->name('transactionUpdate');
 Route::post('netsuite', [PaymentInvoiceController::class, 'netsuiteInvoice'])->name('netsuite');
+Route::post('getCategories', [PaymentInvoiceController::class, 'getCategories'])->name('getCategories');

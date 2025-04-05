@@ -51,8 +51,8 @@ use App\Models\User;
                         <tr>
                           <td>{{ ++$key }}</td>
                           <td>{{ $item->created_at->format('d M Y') }}</td>
-                          <td>{{ $item->user->name }} {{$item->user->lastName}}</td>
-                          <td>{{ $item->user->email }}</td>
+                          <td>{{ $item->user->name ?? "Deleted" }} {{$item->user->lastName ?? "User"}}</td>
+                          <td>{{ $item->user->email ?? "-" }}</td>
                           <td>
                             @if ($item->from === 'ATOLIN')
                                 Wallet <b>({{$item->atolin_amount}})</b>

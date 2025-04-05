@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\CURL\Account;
 use App\CURL\ExternalAccount;
 use App\CURL\Transaction;
 use App\Encryption\Encryption;
@@ -90,6 +91,7 @@ class DashboardController extends Controller
         $withdraw = WithdrawalRequest::find($request->id);
         $user = User::findOrFail($withdraw->user_id);
         $bank = ExternalAccount::getAccountById($withdraw->bank_id);
+        $account = Account::getByUser($user->priority_id);
 
         if (!$withdraw->bank_id || !$bank['status']) {
             return back()->with('flash_error', 'Bank id doesn\'t exist!');
@@ -110,7 +112,7 @@ class DashboardController extends Controller
         //     'currency' => 'USD',
         //     'customer' => $cust_id, // Replace with the customer's Stripe ID
         // ]);
-        $payout = Transaction::sendToUser($withdraw->amount, $user->priority_id, $withdraw->bank_id);
+        $payout = Transaction::withdraw($user->priority_id, $account['response']['objects'][0]['guid'], $bank['response']['guid'], $withdraw->net_amount, Setting::get('withdraw_fees'));
 
         if (!$payout['status']) {
             return back()->with('flash_error', $payout['response']);
@@ -468,7 +470,7 @@ class DashboardController extends Controller
     public static function getUsers()
     {
 
-        $getUsers = User::whereNotIn('utype', ['admin'])->orderByDesc('id')->get();
+        $getUsers = User::whereNotIn('utype', ['admin'])->where("status", "!=", 0)->orderByDesc('id')->get();
 
         return view('userslist',  compact('getUsers'));
     }
@@ -479,6 +481,9 @@ class DashboardController extends Controller
         $userid = request('id');
 
         $getUserDetails = User::where('id', $userid)->first();
+        if (!$getUserDetails) {
+            abort(404);
+        }
         // dd($getUserDetails);
 
         $country = Country::where('id', $getUserDetails['country_code'])->first();

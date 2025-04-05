@@ -1,4 +1,4 @@
-<?php use \App\Http\Controllers\DashboardController; 
+<?php use \App\Http\Controllers\DashboardController;
 use App\Models\User;
 ?>
 
@@ -44,7 +44,7 @@ use App\Models\User;
                         <th>Amount</th>
                         <th>Transaction type</th>
                         <th>Made at</th>
-                        
+
                       </tr>
                     </thead>
                     <tbody>
@@ -53,11 +53,11 @@ use App\Models\User;
                           <td>{{ ++$key }}</td>
                           <td>{{ $getLatestTransaction->transaction_id }}</td>
                           <td>
-                            @php $user = User::find($getLatestTransaction->user_id, ['name']) @endphp {{ $user->name }}
+                            @php $user = User::find($getLatestTransaction->user_id, ['name']) @endphp {{ $user->name ?? "Deleted" }}
                           </td>
-                          <td>@php $user = User::find($getLatestTransaction->receiver_id, ['name']) @endphp {{ $user->name }}</td>
+                          <td>@php $user = User::find($getLatestTransaction->receiver_id, ['name']) @endphp {{ $user->name ?? "Deleted" }}</td>
                           <td>$ {!! number_format((float)($getLatestTransaction->amount), 2) !!}</td>
-                          <td>{{ ucfirst($getLatestTransaction->t_type) }} 
+                          <td>{{ ucfirst($getLatestTransaction->t_type) }}
                           @if ($getLatestTransaction->t_type === 'debit')
                           <span class="icon-shape icon-xs rounded-circle text-success ml-4 bg-success-light"><i class="fa fa-fw fa-arrow-up"></i></span>
                           @else
@@ -66,7 +66,7 @@ use App\Models\User;
                           </td>
                           <td>{{ $getLatestTransaction->created_at }}</td>
                         </tr>
-                        @endforeach 
+                        @endforeach
                     </tbody>
                     <tfoot>
                       <tr>

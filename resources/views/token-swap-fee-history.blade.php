@@ -53,8 +53,8 @@
                         <tr>
                           <td>{{ ++$key }}</td>
                           <td>{{ $item->created_at->format('d M Y') }}</td>
-                          <td>{{ $item->user->name }} {{$item->user->lastName}}</td>
-                          <td>{{ $item->user->email }}</td>
+                          <td>{{ $item->user->name ?? "Deleted" }} {{$item->user->lastName ?? "User"}}</td>
+                          <td>{{ $item->user->email ?? "-" }}</td>
                           <td>{{ $item->fee }}</td>
                           <td>{{ $item->fee_amount }}@if ($item->from === 'ATOLIN') {{$item->token_symbol ?? 'Tokens'}} @else $ @endif</td>
                           <td><a href="/token-swap-details/{{ $item->id }}" class="btn btn-primary">Details</a></td>

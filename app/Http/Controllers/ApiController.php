@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\CURL\Account;
+use App\CURL\Crypto;
+use App\CURL\CryptoTransaction as CURLCryptoTransaction;
 use App\CURL\Customer;
+use App\CURL\ExternalWallet;
 use App\CURL\KYC;
 use App\CURL\Transaction;
 use App\Encryption\Encryption;
@@ -32,8 +35,13 @@ class ApiController extends Controller
         if (!$user) {
             return response()->json(["error" => 'Invalid User'], 422);
         }
-        $balance = Wallet::balance($user->id);
-        return response()->json(compact('balance'));
+        // $balance = Wallet::balance($user->id);
+        $balance = Account::getByUser($user->priority_id);
+        if ($balance['status'] == false) {
+            return response()->json(['error' => $balance['response']], 400);
+        }
+
+        return response()->json(['balance' => ($balance['response']['objects'][0]['platform_available']) /100], 200);
     }
 
     public function transfer(Request $request): JsonResponse
@@ -52,7 +60,7 @@ class ApiController extends Controller
             return response()->json(["error" => 'Not enough Balance'], 422);
         }
 
-        $reciever = User::where("contact", $request->contact)->first();
+        $reciever = User::where("contact", $request->contact)->where('status', 1)->first();
 
         if ($reciever == null || $user->id == $reciever->id) {
             return response()->json(["error" => 'Invalid contact number'], 422);
@@ -66,23 +74,6 @@ class ApiController extends Controller
         if ($reciever_kyc['status'] && $reciever_kyc['response']['total'] === 0) {
             return response()->json(['error' => 'User KYC not verified.'], 400);
         }
-
-        // $reciever_account =
-        // $senderAccount = Account::getByUser($user->priority_id);
-        // if (!$senderAccount['status']) {
-        //     return response()->json(['error'=> 'You don\'t have Account on Platform'], 400);
-        // }
-        // $recieverAccount = Account::getByUser($reciever->priority_id);
-        // if (! $recieverAccount['status']) {
-        //     return response()->json(['error'=> 'Reciever do\'t have Account on Platform'], 400);
-        // }
-        // $sendFrom = $senderAccount['response']['objects'][0]['guid'];
-        // $recieveTo = $recieverAccount['response']['objects'][0]['guid'];
-        // $transaction = Transaction::sendUserToUser($request->amount * 100, $sendFrom, $recieveTo);
-
-        // if (!$transaction['status']) {
-        //     return response()->json(['error'=> 'Transaction Failed'], 400);
-        // }
 
         Wallet::create([
             'user_id' => $user->id,
@@ -101,19 +92,15 @@ class ApiController extends Controller
             'from_id' => $user->id
         ]);
 
+        $sourceAccount = Account::getByUser($user->priority_id)['response']['objects'][0]['guid'];
+        $destinationAccount = Account::getByUser($reciever->priority_id)['response']['objects'][0]['guid'];
+        Transaction::customerToCustomer($user->priority_id, $reciever->priority_id, $sourceAccount, $destinationAccount, $request->amount);
+
         return response()->json(["message" => "Amount transfer successfully!"], 200);
     }
 
     public function credit_histroy(Request $request): JsonResponse
     {
-        // $validator = Validator::make($request->all(),[
-        //     'token' => 'required',
-        // ]);
-        // if ($validator->fails()) {
-        //     return response()->json(['message'=>$validator->errors()],500);
-        // }
-
-        // $user = PersonalAccessToken::findToken($request->token);
 
         $user = Auth::user();
         if ($user == null) {
@@ -124,14 +111,6 @@ class ApiController extends Controller
     }
     public function debit_histroy(Request $request): JsonResponse
     {
-        // $validator = Validator::make($request->all(),[
-        //     'token' => 'required',
-        // ]);
-        // if ($validator->fails()) {
-        //     return response()->json(['message'=>$validator->errors()],500);
-        // }
-
-        // $user = PersonalAccessToken::findToken($request->token);
         $user = Auth::user();
         if ($user == null) {
             return response()->json(["error" => 'Unauthorised'], 401);
@@ -142,15 +121,7 @@ class ApiController extends Controller
 
     public function transactions(Request $request): JsonResponse
     {
-        $limit = $request->limit ?? 50;
-        // $validator = Validator::make($request->all(),[
-        //     'token' => 'required',
-        // ]);
-        // if ($validator->fails()) {
-        //     return response()->json(['message'=>$validator->errors()],500);
-        // }
-
-        // $user = PersonalAccessToken::findToken($request->token);
+        $limit = $request->limit ?? 15;
         $user = Auth::user();
         if ($user == null) {
             return response()->json(["error" => 'Invalid LoggedIn User'], 422);
@@ -163,13 +134,6 @@ class ApiController extends Controller
                 $data->user = User::where("id", $transaction->user_id)->select('name')->first();
             }
         });
-        // $history->map(function ($data) {
-        //     // $data->documents = UserDocument::where("user_id", $data->user_id)->with('document')->first();
-        //     $data->user = User::when($data->receiver_id == 'admin', function ($user) {
-        //         return $user->where('utype', 'admin');
-        //     })->where("id", $data->receiver_id)->select('name')->first();
-        //     return $data;
-        // });
 
         return response()->json(compact('history'));
     }
@@ -220,9 +184,9 @@ class ApiController extends Controller
     {
         $user = User::find($id);
         if (!empty($user) && $user->utype == 'user') {
-            Customer::deleteCustomer($user->priority_id);
-            $user->delete();
-            return redirect()->back()->with(['success' => 'Invalid User!']);
+            // Customer::deleteCustomer($user->priority_id);
+            $user->update(['status' => 0]);
+            return redirect()->back()->with(['success' => 'User Deleted!']);
         } else {
             return redirect()->back()->withErrors('Invalid User!');
         }
@@ -243,47 +207,101 @@ class ApiController extends Controller
     {
         $user = Auth::user();
 
-        $wallet = Http::withHeaders([
-            'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
-        ])->post('http://127.0.0.1:4000/create-account');
-
-        if ($wallet->failed()) {
-            return response()->json(['error' => $wallet->json()], 400);
+        if ($user->crypto_wallet_id) {
+            $userWallet = Crypto::getAccountById($user->crypto_wallet_id);
+            if ($userWallet['status'] == true) {
+                return response()->json(['message' => 'Wallet Already Created', 'user' => $user, 'wallet' => $userWallet['response']], 200);
+            }
+            return response()->json(['error' => 'Wallet Already Created'], 400);
         }
 
-        if ($wallet->successful()) {
-            $data = $wallet->json();
-            $crypto = $this->storeWallet($data['data'], $user->id);
-            $crypto->wallet_address = Encryption::decrypt($crypto->wallet_address);
-            $crypto->secret_phrase = Encryption::decrypt($crypto->secret_phrase);
+        // $wallet = Http::withHeaders([
+        //     'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
+        // ])->post('http://127.0.0.1:4000/create-account');
+        $wallet = Crypto::createAccount($user->priority_id);
 
-            return response()->json(['message' => 'Wallet Created Successfully', 'wallet' => $crypto], 200);
+        if ($wallet['status'] == false) {
+            if (!empty($wallet['wallet'])) {
+                $user->crypto_wallet_id = $wallet['wallet']['guid'];
+                $user->save();
+                return response()->json(['message' => 'Wallet Created Successfully', 'user' => $user, 'wallet' => $wallet['wallet']], 200);
+            }
+            return response()->json(['error' => "Wallet Already Created"], 400);
         }
+
+        if ($wallet) {
+            $data = $wallet['response'];
+            $user->crypto_wallet_id = $data['guid'];
+            $user->save();
+            // $crypto = $this->storeWallet($data['data'], $user->id);
+            // $crypto->wallet_address = Encryption::decrypt($crypto->wallet_address);
+            // $crypto->secret_phrase = Encryption::decrypt($crypto->secret_phrase);
+
+            return response()->json(['message' => 'Wallet Created Successfully', 'user' => $user, 'wallet' => $data], 200);
+        }
+    }
+
+    public function cryptoPrice() {
+        $price = Crypto::getBTCPrice();
+
+        return response()->json($price['response'][0]);
+    }
+
+    public function cryptoWithdraw(Request $request) {
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required|numeric',
+            'wallet_id' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 422);
+        }
+
+        $user = Auth::user();
+
+        $withdraw = CURLCryptoTransaction::withdraw($user->priority_id, $request->amount, $request->wallet_id);
+
+        if ($withdraw['status'] == false) {
+            return response()->json(['error' => $withdraw['message']], 400);
+        }
+
+        return response()->json(['message' => 'Withdrawal Request Sent Successfully']);
     }
 
     public function getCryptoBalance(Request $request)
     {
         $user = Auth::user();
-        $wallet = CryptoWallet::where('user_id', $user->id)->first();
-        if (empty($wallet)) {
+        if (empty($user->crypto_wallet_id)) {
             return response()->json(['error' => 'No Wallet is Connected with This Account'], 400);
         }
 
-        $balance = Http::withHeaders([
-            'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
-        ])->post('http://127.0.0.1:4000/get-balance', ['walletPrivate' => Encryption::decrypt($wallet->private_key), 'address' => $request->address, 'network' => $wallet->network, 'infura_key' => Encryption::decrypt(Setting::get('infura_key')) ]);
+        $balance = Crypto::getAccountById($user->crypto_wallet_id);
+        $wallets = ExternalWallet::getAllAccounts($user->priority_id);
 
-        if ($balance->failed()) {
-            return response()->json(['error' => $balance->json()], 400);
+        if (empty($balance)) {
+            return response()->json(['error' => $balance['response']], 400);
         }
 
-        if ($balance->successful()) {
-            $data = $balance->json();
-            $data['token']['price'] = Setting::get('token_price');
-            $data['token']['fees'] = Setting::get('swap_fee');
-
-            return response()->json(['message' => 'Balance Get Successfully', 'balance' => $data], 200);
+        if ($balance) {
+            $data = $balance['response'];
+            return response()->json(['message' => 'Balance Get Successfully', 'balance' => $data, 'wallets' => $wallets['response']['objects']], 200);
         }
+
+        // $balance = Http::withHeaders([
+        //     'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
+        // ])->post('http://127.0.0.1:4000/get-balance', ['walletPrivate' => Encryption::decrypt($wallet->private_key), 'address' => $request->address, 'network' => $wallet->network, 'infura_key' => Encryption::decrypt(Setting::get('infura_key')) ]);
+
+        // if ($balance->failed()) {
+        //     return response()->json(['error' => $balance->json()], 400);
+        // }
+
+        // if ($balance->successful()) {
+        //     $data = $balance->json();
+        //     $data['token']['price'] = Setting::get('token_price');
+        //     $data['token']['fees'] = Setting::get('swap_fee');
+
+        //     return response()->json(['message' => 'Balance Get Successfully', 'balance' => $data], 200);
+        // }
     }
 
     public function getBalanceByAddress(Request $request)
@@ -311,40 +329,62 @@ class ApiController extends Controller
         }
     }
 
-    public function importWallet(Request $request)
+    public function addExternalWallet(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'phrase' => "required",
+            'walletAddress' => "required",
+            'walletName' => 'required',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['error' => $validator->errors()], 422);
         }
 
-        $wallet = Http::withHeaders([
-            'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
-        ])->post('http://127.0.0.1:4000/import-wallet', [
-                    'phrase' => $request->phrase,
-                ]);
+        $wallet = ExternalWallet::addExternalAccount(Auth::user()->priority_id, $request->walletName, $request->walletAddress);
 
-        if ($wallet->failed()) {
-            return response()->json(['error' => $wallet->json()], 400);
+        if ($wallet['status'] == false) {
+            return response()->json(['error' => $wallet['response']], 400);
         }
 
-        if ($wallet->successful()) {
-            $data = $wallet->json();
+        $wallets = ExternalWallet::getAllAccounts(Auth::user()->priority_id);
 
-            $user = Auth::user();
-            $wallet = CryptoWallet::where('user_id', $user->id)->first();
-            if (empty($wallet)) {
-                $crypto = $this->storeWallet($data['data'], $user->id);
-                $crypto->wallet_address = Encryption::decrypt($crypto->wallet_address);
-            } else {
-                $wallet->wallet_address = Encryption::decrypt($wallet->wallet_address);
-            }
+        return response()->json(['message' => 'Wallet Created Successfully', 'wallets' => $wallets['response']['objects']], 200);
 
-            return response()->json(['message' => 'Balance Get Successfully', 'wallet' => empty($wallet) ? $crypto : $wallet], 200);
+        // if ($wallet->successful()) {
+        //     $data = $wallet->json();
+
+        //     $user = Auth::user();
+        //     $wallet = CryptoWallet::where('user_id', $user->id)->first();
+        //     if (empty($wallet)) {
+        //         $crypto = $this->storeWallet($data['data'], $user->id);
+        //         $crypto->wallet_address = Encryption::decrypt($crypto->wallet_address);
+        //     } else {
+        //         $wallet->wallet_address = Encryption::decrypt($wallet->wallet_address);
+        //     }
+
+        //     return response()->json(['message' => 'Balance Get Successfully', 'wallet' => empty($wallet) ? $crypto : $wallet], 200);
+        // }
+    }
+
+    public function deleteExternalWallet(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'id' => "required",
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 422);
         }
+
+        $wallet = ExternalWallet::deleteAccount($request->id);
+
+        if ($wallet['status'] == false) {
+            return response()->json(['error' => $wallet['response']], 400);
+        }
+
+        $wallets = ExternalWallet::getAllAccounts(Auth::user()->priority_id);
+
+        return response()->json(['message' => 'Wallet Deleted Successfully', 'wallets' => $wallets['response']['objects']], 200);
     }
 
     public function verifyWallet(Request $request)
@@ -370,19 +410,6 @@ class ApiController extends Controller
 
         return response()->json(['message' => 'Secret Phrase Matched Successfully']);
 
-        // if ($wallet->successful()) {
-        //     $data = $wallet->json();
-
-        //     $user = Auth::user();
-        //     $wallet = CryptoWallet::where('user_id', $user->id)->first();
-        //     if (empty($wallet)) {
-        //         $crypto = $this->storeWallet($data, $user->id);
-        //         $crypto->wallet_address = Encryption::decrypt($crypto->wallet_address);
-        //         $crypto->secret_phrase = Encryption::decrypt($crypto->secret_phrase);
-        //     }
-
-        //     return response()->json(['message' => 'Balance Get Successfully', 'wallet' => empty($wallet) ? $crypto : $wallet], 200);
-        // }
     }
 
     public function sendBNB(Request $request)
@@ -429,22 +456,6 @@ class ApiController extends Controller
                 'transaction_type' => 'debit',
                 'type' => 'bnb'
             ]);
-            // $second_wallet = CryptoWallet::where('wallet_address', Encryption::encrypt($tx['from']))->first();
-            // $second_user = User::where('id', $second_wallet->user_id)->first();
-            // CryptoTransaction::create([
-            //     'user_id' => $second_user->id ?? 0,
-            //     'block_hash' => $tx['blockHash'],
-            //     'amount' => $amount,
-            //     'contract_address' => !empty($tx['contractAddress']) ? Encryption::encrypt($tx['contractAddress']) : null,
-            //     'fee' => !empty($tx['fee']) ? $tx['fee'] : null,
-            //     'from' => Encryption::encrypt($to),
-            //     'gas_price' => $tx['gasPrice'],
-            //     'hash' => $tx['hash'],
-            //     'status' => $tx['status'],
-            //     'to' => Encryption::encrypt($tx['from']),
-            //     'transaction_type' => 'credit',
-            //     'type' => 'bnb'
-            // ]);
             return response()->json(['message' => 'Transaction Successful']);
         }
         if ($transaction->failed()) {
@@ -495,22 +506,6 @@ class ApiController extends Controller
                 'transaction_type' => 'debit',
                 'type' => 'token'
             ]);
-            // $second_wallet = CryptoWallet::where('wallet_address', Encryption::encrypt($tx['from']))->first();
-            // $second_user = User::where('id', $second_wallet->user_id)->first();
-            // CryptoTransaction::create([
-            //     'user_id' => $second_user->id ?? 0,
-            //     'amount' => $amount,
-            //     'block_hash' => $tx['blockHash'],
-            //     'contract_address' => !empty($tx['contractAddress']) ? Encryption::encrypt($tx['contractAddress']) : null,
-            //     'fee' => !empty($tx['fee']) ? $tx['fee'] : null,
-            //     'from' => Encryption::encrypt($to),
-            //     'gas_price' => $tx['gasPrice'],
-            //     'hash' => $tx['hash'],
-            //     'status' => $tx['status'],
-            //     'to' => Encryption::encrypt($tx['from']),
-            //     'transaction_type' => 'credit',
-            //     'type' => 'token'
-            // ]);
             return response()->json(['message' => 'Transaction Successful']);
         }
         if ($transaction->failed()) {
@@ -574,11 +569,8 @@ class ApiController extends Controller
     public function transactionHistory(Request $request)
     {
         $user = Auth::user();
-        $wallet = CryptoWallet::where('user_id', $user->id)->first();
-        $history = CryptoTransaction::where(function ($q) use ($wallet) {
-            $q->where('from', $wallet->wallet_address)->orWhere('to', $wallet->wallet_address);
-        })->where('type', $request->type ?? 'bnb')->where('contract_address', $request->contract_address)->orderBy('created_at', 'DESC')->paginate(10);
-        return response()->json(['message' => "History Get", 'history' => $history]);
+        $history = CURLCryptoTransaction::transferHistory($user->priority_id, $request->page);
+        return response()->json(['message' => "History Get", 'history' => $history['response']]);
     }
 
     public function checkAddress(Request $request)
@@ -600,6 +592,62 @@ class ApiController extends Controller
         }
     }
 
+    public function swapToken(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'from' => 'required',
+            'amount' => 'required',
+            'to' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => 'Please check all feilds', 'message' => 'Request Failed'], 422);
+        }
+
+        $user = Auth::user();
+        if (empty($user->crypto_wallet_id)) {
+            return response()->json(['error' => 'No Wallet is Connected to this user'], 422);
+        }
+
+        $swap_fee = Setting::get('swap_fee');
+
+        $fromAtolin = $request->from === 'atolin-wallet';
+
+        $transaction = null;
+        if ($fromAtolin) {
+            $transaction = \App\CURL\CryptoTransaction::buy($user->priority_id, $request->amount, $swap_fee);
+            if ($transaction['status'] == false) {
+                return response()->json(['error' => $transaction['message']], 400);
+            }
+        } else {
+            $transaction = \App\CURL\CryptoTransaction::sell($user->priority_id, $request->amount, $swap_fee);
+            if ($transaction['status'] == false) {
+                return response()->json(['error' => $transaction['message']], 400);
+            }
+        }
+        // $swapData = $transaction['response'];
+        //     $swap = TokenSwap::create([
+        //         'user_id' => Auth::user()->id,
+        //         'from' => $fromAtolin ? 'ATOLIN' : "TOKEN",
+        //         'to' => $fromAtolin ? 'TOKEN' : "ATOLIN",
+        //         'atolin_amount' => $fromAtolin ? $swapData['deliver_amount'] : $swapData['recieve_amount'],
+        //         'token_amount' => $token_amount,
+        //         'fee' => $swap_fee * 100,
+        //         'token_symbol' => $swapReq['symbol'],
+        //     ]);
+        Wallet::create([
+            'user_id' => Auth::user()->id,
+            'amount' => $fromAtolin ? $request->amount : ($transaction['response']['recieve_amount']) / 100,
+            'status' => 'APPROVED',
+            't_type' => $fromAtolin ? 'debit' : 'credit',
+            'type' => 'TOKEN_SWAP',
+            'transaction_id' => $transaction['response']['guid'],
+            'fee' => $swap_fee,
+        ]);
+
+        $message = "Swap Successfull";
+        return response()->json(['message' => $message]);
+    }
     // public function swapToken(Request $request)
     // {
     //     $validator = Validator::make($request->all(), [
@@ -617,118 +665,92 @@ class ApiController extends Controller
     //         return response()->json(['error' => 'No Wallet is Connected to this user'], 422);
     //     }
 
-    //     $tokenFee = Setting::get('swap_fee');
+    //     $token_price = Setting::get('token_price');
+    //     $swap_fee = Setting::get('swap_fee') / 100;
 
-    //     $walletPrivate = '';
-    //     $reciever = '';
-    //     $tokenAmount = 0;
-    //     $atolinAmount = 0;
-    //     $transaction_type = '';
-    //     // $transaction_id = '';
-    //     if ($request->from === 'atolin-wallet') {
+    //     $fromAtolin = $request->from === 'atolin-wallet';
+
+    //     $walletPrivate = "";
+    //     $reciever = "";
+    //     $token_amount = 0;
+    //     $atolin_amount = 0;
+    //     $transaction_type = "";
+    //     $rawAtolin = 0;
+
+    //     if ($fromAtolin) {
     //         $walletPrivate = Encryption::decrypt(Setting::get('wallet_private'));
     //         $reciever = Encryption::decrypt($wallet->wallet_address);
-    //         $transaction_type = 'debit';
-    //         $tokenPrice = Setting::get('token_price');
-    //         $rawTokenAmount = $request->amount / $tokenPrice;
-    //         $tokenAmount = $rawTokenAmount * (1 - $tokenFee / 100);
-    //         $atolinAmount = $request->amount;
-    //         if ($atolinAmount > Wallet::balance(Auth::user()->id)) {
-    //             return response()->json([
-    //                 'error' => 'Insufficiant Wallet Balance',
-    //             ], 400);
-    //         }
-    //         // $userAccount = Account::getByUser(Auth::user()->priority_id);
-    //         // if (!$userAccount['status']) {
-    //         //     return response()->json([
-    //         //         'error'=> 'You don\'t have account on Platform',
-    //         //         ], 400);
-    //         // }
-    //         // $accountId = $userAccount['response']['objects'][0]['guid'];
-    //         // $cybridTransaction = Transaction::sendUserToUser($atolinAmount  * 100, $accountId, env('CYBRID_MAIN_ACCOUNT'));
-    //         // if (!$cybridTransaction['status']) {
-    //         //     return response()->json(['error' => $cybridTransaction['response']], 400);
-    //         // }
-    //         // $transaction_id = $cybridTransaction['response']['guid'];
+    //         $transaction_type = "debit";
+
+    //         $rawAtolin = $request->amount;
+    //         $feeAmount = $rawAtolin * $swap_fee;
+    //         $atolin_amount = $rawAtolin - $feeAmount;
+    //         $token_amount = $atolin_amount / $token_price;
     //     } else {
     //         $walletPrivate = Encryption::decrypt($wallet->private_key);
     //         $reciever = Encryption::decrypt(Setting::get('wallet_address'));
-    //         $transaction_type = 'credit';
-    //         $tokenPrice = Setting::get('token_price');
-    //         $tokenAmount = $request->amount;
-    //         // $tokenAmount = ($rawTokenAmount * $tokenFee) / 100;
-    //         $netTokenAmount = $tokenAmount * (1 - $tokenFee / 100);
-    //         $finalPrice = $netTokenAmount * $tokenPrice;
-    //         $beforeFeeAtolin = $tokenAmount * $tokenPrice;
-    //         $atolinAmount = $finalPrice;
-    //         // $userAccount = Account::getByUser(Auth::user()->priority_id);
-    //         // if (!$userAccount['status']) {
-    //         //     return response()->json([
-    //         //         'error'=> 'You don\'t have account on Platform',
-    //         //         ], 400);
-    //         // }
-    //         // $accountId = $userAccount['response']['objects'][0]['guid'];
-    //         // $cybridTransaction = Transaction::sendUserToUser($atolinAmount * 100, env('CYBRID_MAIN_ACCOUNT'), $accountId);
-    //         // if (!$cybridTransaction['status']) {
-    //         //     return response()->json(['error' => $cybridTransaction['response']], 400);
-    //         // }
-    //         // $transaction_id = $cybridTransaction['response']['guid'];
+    //         $transaction_type = "credit";
+
+    //         $token_amount = $request->amount;
+    //         $rawAtolin = $token_amount * $token_price;
+    //         $feeAmount = $rawAtolin * $swap_fee;
+    //         $atolin_amount = $rawAtolin - $feeAmount;
     //     }
 
-    //     $transaction = Http::withHeaders([
+    //     $swapTx = Http::withHeaders([
     //         'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
     //     ])->post('http://127.0.0.1:4000/transfer-token', [
-    //         'walletPrivate' => $walletPrivate,
-    //         'toAddress' => $reciever,
-    //         'amount' => $tokenAmount,
-    //     ]);
+    //                 'walletPrivate' => $walletPrivate,
+    //                 'toAddress' => $reciever,
+    //                 'amount' => $token_amount,
+    //                 'network' => $wallet->network
+    //             ]);
 
-    //     if ($transaction->successful()) {
-    //         $response = $transaction->json();
-    //         $tx = $response['data'];
-    //         $amount = $response['amount'];
-    //         $to = $response['toAddress'];
-    //         $contractAddress = $response['contractAddress'] ?? '';
-    //         // Store Transaction to Database
+    //     if ($swapTx->successful()) {
+    //         $swapReq = $swapTx->json();
+    //         $swapRes = $swapReq['data'];
+
     //         CryptoTransaction::create([
     //             'user_id' => Auth::user()->id,
-    //             'amount' => $amount,
-    //             'block_hash' => $tx['blockHash'],
-    //             'contract_address' => !empty($contractAddress) ? $contractAddress : null,
-    //             'fee' => !empty($tx['fee']) ? $tx['fee'] : null,
-    //             'from' => Encryption::encrypt($tx['from']),
-    //             'gas_price' => $tx['gasPrice'],
-    //             'hash' => $tx['hash'],
-    //             'status' => $tx['status'],
-    //             'to' => Encryption::encrypt($to),
-    //             'transaction_type' => $request->from === 'atolin-wallet' ? 'credit' : 'debit',
-    //             'type' => 'token'
+    //             'block_hash' => $swapRes['blockHash'],
+    //             'amount' => $token_amount,
+    //             'contract_address' => !empty($swapRes['contractAddress']) ? Encryption::encrypt($swapRes['contractAddress']) : null,
+    //             'fee' => !empty($swapRes['fee']) ? $swapRes['fee'] : null,
+    //             'from' => Encryption::encrypt($swapRes['from']),
+    //             'gas_price' => $swapRes['gasPrice'],
+    //             'hash' => $swapRes['hash'],
+    //             'status' => $swapRes['status'],
+    //             'to' => Encryption::encrypt($swapRes['to']),
+    //             'transaction_type' => $fromAtolin ? 'credit' : 'debit',
+    //             'type' => 'token',
     //         ]);
     //         Wallet::create([
-    //             'user_id'=> Auth::user()->id,
-    //             'amount'=> $atolinAmount,
+    //             'user_id' => Auth::user()->id,
+    //             'amount' => $atolin_amount,
     //             't_type' => $transaction_type,
     //             'type' => 'TOKEN_SWAP',
     //             'status' => "APPROVED",
-    //             'fee' => $tokenFee,
+    //             'fee' => $swap_fee * 100,
     //         ]);
     //         $swap = TokenSwap::create([
     //             'user_id' => Auth::user()->id,
-    //             'from' => $request->from === 'atolin-wallet' ? 'ATOLIN' : "TOKEN",
-    //             'to' => $request->from === 'atolin-wallet' ? 'TOKEN' : "ATOLIN",
-    //             'atolin_amount' => $request->from === 'atolin-wallet' ? $atolinAmount : $beforeFeeAtolin,
-    //             'token_amount' => $request->from === 'atolin-wallet' ? $rawTokenAmount : $tokenAmount,
-    //             'fee' => $tokenFee,
-    //             'token_symbol' => $response['symbol'],
+    //             'from' => $fromAtolin ? 'ATOLIN' : "TOKEN",
+    //             'to' => $fromAtolin ? 'TOKEN' : "ATOLIN",
+    //             'atolin_amount' => $rawAtolin,
+    //             'token_amount' => $token_amount,
+    //             'fee' => $swap_fee * 100,
+    //             'token_symbol' => $swapReq['symbol'],
     //         ]);
-    //         if ($request->from === 'atolin-wallet') {
+
+    //         if ($fromAtolin) {
     //             $gasFee = Http::withHeaders([
     //                 'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
     //             ])->post('http://127.0.0.1:4000/transfer-fees', [
-    //                 'walletPrivate' => Encryption::decrypt($wallet->private_key),
-    //                 'toAddress' => $reciever,
-    //                 'amount' => $tx['gasPrice'],
-    //             ]);
+    //                         'walletPrivate' => Encryption::decrypt($wallet->private_key),
+    //                         'toAddress' => $reciever,
+    //                         'amount' => $swapRes['gasPrice'],
+    //                         'infura_key' => Encryption::decrypt(Setting::get('infura_key'))
+    //                     ]);
 
     //             if ($gasFee->successful()) {
     //                 $gasTX = $gasFee->json();
@@ -752,157 +774,24 @@ class ApiController extends Controller
     //                     'fee_id' => $swap->id,
     //                 ]);
     //             }
-    //             if ($gasFee->failed()) {
-    //                 Log::info("GAS ERROR ----------------------------------");
-    //                 Log::info($gasFee->json());
-    //                 Log::info("GAS ERROR ----------------------------------");
-    //                 // return response()->json(['error' => $gasFee->json()], 400);
-    //             }
+    //             $account = Account::getByUser(Auth::user()->priority_id);
+    //             Transaction::customerToBank(Auth::user()->priority_id, $account['response']["objects"][0]['guid'], $atolin_amount);
+    //         } else {
+    //             $account = Account::getByUser(Auth::user()->priority_id);
+    //             Transaction::bankToCustomer(Auth::user()->priority_id, $account['response']["objects"][0]['guid'], $atolin_amount);
     //         }
     //         return response()->json(['message' => 'Transaction Successful']);
     //     }
-    //     if ($transaction->failed()) {
-    //         return response()->json(['error' => $transaction->json()], 400);
+    //     if ($swapTx->failed()) {
+    //         return response()->json(['error' => $swapTx->json()], 400);
     //     }
     // }
 
-    public function swapToken(Request $request)
+    public function swapHistory(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'from' => 'required',
-            'amount' => 'required',
-            'to' => 'required',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['error' => 'Please check all feilds', 'message' => 'Request Failed'], 422);
-        }
-
-        $wallet = CryptoWallet::where('user_id', Auth::user()->id)->first();
-        if (empty($wallet)) {
-            return response()->json(['error' => 'No Wallet is Connected to this user'], 422);
-        }
-
-        $token_price = Setting::get('token_price');
-        $swap_fee = Setting::get('swap_fee') / 100;
-
-        $fromAtolin = $request->from === 'atolin-wallet';
-
-        $walletPrivate = "";
-        $reciever = "";
-        $token_amount = 0;
-        $atolin_amount = 0;
-        $transaction_type = "";
-        $rawAtolin = 0;
-
-        if ($fromAtolin) {
-            $walletPrivate = Encryption::decrypt(Setting::get('wallet_private'));
-            $reciever = Encryption::decrypt($wallet->wallet_address);
-            $transaction_type = "debit";
-
-            $rawAtolin = $request->amount;
-            $feeAmount = $rawAtolin * $swap_fee;
-            $atolin_amount = $rawAtolin - $feeAmount;
-            $token_amount = $atolin_amount / $token_price;
-        } else {
-            $walletPrivate = Encryption::decrypt($wallet->private_key);
-            $reciever = Encryption::decrypt(Setting::get('wallet_address'));
-            $transaction_type = "credit";
-
-            $token_amount = $request->amount;
-            $rawAtolin = $token_amount * $token_price;
-            $feeAmount = $rawAtolin * $swap_fee;
-            $atolin_amount = $rawAtolin - $feeAmount;
-        }
-
-        $swapTx = Http::withHeaders([
-            'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
-        ])->post('http://127.0.0.1:4000/transfer-token', [
-                    'walletPrivate' => $walletPrivate,
-                    'toAddress' => $reciever,
-                    'amount' => $token_amount,
-                    'network' => $wallet->network
-                ]);
-
-        if ($swapTx->successful()) {
-            $swapReq = $swapTx->json();
-            $swapRes = $swapReq['data'];
-
-            CryptoTransaction::create([
-                'user_id' => Auth::user()->id,
-                'block_hash' => $swapRes['blockHash'],
-                'amount' => $token_amount,
-                'contract_address' => !empty($swapRes['contractAddress']) ? Encryption::encrypt($swapRes['contractAddress']) : null,
-                'fee' => !empty($swapRes['fee']) ? $swapRes['fee'] : null,
-                'from' => Encryption::encrypt($swapRes['from']),
-                'gas_price' => $swapRes['gasPrice'],
-                'hash' => $swapRes['hash'],
-                'status' => $swapRes['status'],
-                'to' => Encryption::encrypt($swapRes['to']),
-                'transaction_type' => $fromAtolin ? 'credit' : 'debit',
-                'type' => 'token',
-            ]);
-            Wallet::create([
-                'user_id' => Auth::user()->id,
-                'amount' => $atolin_amount,
-                't_type' => $transaction_type,
-                'type' => 'TOKEN_SWAP',
-                'status' => "APPROVED",
-                'fee' => $swap_fee * 100,
-            ]);
-            $swap = TokenSwap::create([
-                'user_id' => Auth::user()->id,
-                'from' => $fromAtolin ? 'ATOLIN' : "TOKEN",
-                'to' => $fromAtolin ? 'TOKEN' : "ATOLIN",
-                'atolin_amount' => $rawAtolin,
-                'token_amount' => $token_amount,
-                'fee' => $swap_fee * 100,
-                'token_symbol' => $swapReq['symbol'],
-            ]);
-
-            if ($fromAtolin) {
-                $gasFee = Http::withHeaders([
-                    'X-Atolin-Node-Request-Only-X' => env('AUTH_KEY'),
-                ])->post('http://127.0.0.1:4000/transfer-fees', [
-                            'walletPrivate' => Encryption::decrypt($wallet->private_key),
-                            'toAddress' => $reciever,
-                            'amount' => $swapRes['gasPrice'],
-                            'infura_key' => Encryption::decrypt(Setting::get('infura_key'))
-                        ]);
-
-                if ($gasFee->successful()) {
-                    $gasTX = $gasFee->json();
-                    $txData = $gasTX['data'];
-                    $gasAmount = $gasTX['amount'];
-                    $gasTo = $gasTX['toAddress'];
-                    // Store Transaction to Database
-                    CryptoTransaction::create([
-                        'user_id' => Auth::user()->id,
-                        'block_hash' => $txData['blockHash'],
-                        'amount' => $gasAmount,
-                        'contract_address' => !empty($txData['contractAddress']) ? Encryption::encrypt($txData['contractAddress']) : null,
-                        'fee' => !empty($txData['fee']) ? $txData['fee'] : null,
-                        'from' => Encryption::encrypt($txData['from']),
-                        'gas_price' => $txData['gasPrice'],
-                        'hash' => $txData['hash'],
-                        'status' => $txData['status'],
-                        'to' => Encryption::encrypt($gasTo),
-                        'transaction_type' => 'debit',
-                        'type' => 'gas_fee',
-                        'fee_id' => $swap->id,
-                    ]);
-                }
-                // if ($gasFee->failed()) {
-                //     Log::info("GAS ERROR ----------------------------------");
-                //     Log::info($gasFee->json());
-                //     Log::info("GAS ERROR ----------------------------------");
-                // }
-            }
-            return response()->json(['message' => 'Transaction Successful']);
-        }
-        if ($swapTx->failed()) {
-            return response()->json(['error' => $swapTx->json()], 400);
-        }
+        $user = Auth::user();
+        $swaps = CURLCryptoTransaction::tradeHistory($user->priority_id, $request->page);
+        return response()->json(['history' => $swaps['response'], 'message' => "History Fetched"]);
     }
 
     public function switchNetwork(Request $request)

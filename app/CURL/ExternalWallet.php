@@ -7,7 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class ExternalAccount
+class ExternalWallet
 {
     public static function returnData($response)
     {
@@ -16,7 +16,7 @@ class ExternalAccount
         }
         if ($response->failed()) {
             if (env('LOG_CYBRID')) {
-                Log::info("Cybrid Error in ExternalAccount.php");
+                Log::info("Cybrid Error in ExternalWallet.php");
                 Log::info($response->json());
                 Log::info("================================");
             }
@@ -28,46 +28,40 @@ class ExternalAccount
     }
 
     /**
-     * Create new external account for Priority Customer
-     * @param int $user_id
-     * @param object $account
-     * @return array
+     * Create new account.
+     *
+     * @param string $customer_guid
+     * @param string $name
+     * @param string $address
+     * @return array{status: bool, response: array{
+     *     guid?: string,
+     *     created_at?: string,
+     *     updated_at?: string,
+     *     asset?: string,
+     *     environment?: string,
+     *     address?: string,
+     *     tag?: string,
+     *     name?: string,
+     *     bank_guid?: string,
+     *     customer_guid?: string,
+     *     state?: string,
+     * }|string}
      */
-    public static function addExternalAccount($user_id, $account_id, $token, $name)
+    public static function addExternalAccount($customer_guid, $name, $address)
     {
         $data = [
-            "account_kind" => "plaid",
             "name" => $name,
-            "customer_guid" => $user_id,
-            "asset" => "USD",
-            "plaid_account_id" => $account_id,
-            "plaid_public_token" => $token,
+            "customer_guid" => $customer_guid,
+            "asset" => "BTC",
+            "address" => $address,
         ];
-        $token = Auth::getToken('external_bank_accounts', 'execute');
+        $token = Auth::getToken('external_wallets', 'execute');
         if ($token['status'] == false) {
             return $token;
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->post(config('cybrid.api')."/external_bank_accounts", $data);
-        // \Log::info($response);
-
-        return self::returnData($response);
-    }
-
-    /**
-     * Get External account by user_id and account number
-     * @param int $user_id
-     * @param int $account_number
-     * @return array
-     */
-    public static function getAccount($user_id, $account_number)
-    {
-        $response = Http::withHeaders([
-            'PromiseMode' => 'NEVER',
-            'Authorization' => 'Bearer ' . env('PRIORITY_API_KEY'),
-        ])->get("https://api.sandbox.prioritypassport.com/v1/customer/externalId/{$user_id}/externalAccount/externalId/{$account_number}");
-        // \Log::info($response->body());
+        ])->post(config('cybrid.api')."/external_wallets", $data);
 
         return self::returnData($response);
     }
@@ -79,32 +73,48 @@ class ExternalAccount
      */
     public static function getAccountById($account_id)
     {
-        $token = Auth::getToken('external_bank_accounts', 'read');
+        $token = Auth::getToken('external_wallets', 'read');
         if ($token['status'] == false) {
             return $token;
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get(config('cybrid.api')."/external_bank_accounts/{$account_id}");
+        ])->get(config('cybrid.api')."/external_wallets/{$account_id}");
         // \Log::info($response->body());
 
         return self::returnData($response);
     }
 
     /**
-     * Get All External Accounts by user
      * @param int $user_id
-     * @return array
+     * @return array{status: bool, response: array{
+     *     total?: int,
+     *     page?: int,
+     *     per_page?: int,
+     *     objects?: array<array{
+     *         guid?: string,
+     *         created_at?: string,
+     *         updated_at?: string,
+     *         asset?: string,
+     *         environment?: string,
+     *         address?: string,
+     *         tag?: string,
+     *         name?: string,
+     *         bank_guid?: string,
+     *         customer_guid?: string,
+     *         state?: string,
+     *     }>
+     * }|string}
      */
     public static function getAllAccounts($user_id)
     {
-        $token = Auth::getToken('external_bank_accounts', 'read');
+        $token = Auth::getToken('external_wallets', 'read');
         if ($token['status'] == false) {
             return $token;
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->get(config('cybrid.api')."/external_bank_accounts?customer_guid=$user_id");
+        ])->get(config('cybrid.api')."/external_wallets?customer_guid=$user_id&state=completed,storing");
 
         return self::returnData($response);
     }
@@ -116,13 +126,13 @@ class ExternalAccount
      */
     public static function deleteAccount($account_id)
     {
-        $token = Auth::getToken('external_bank_accounts', 'execute');
+        $token = Auth::getToken('external_wallets', 'execute');
         if ($token['status'] == false) {
             return $token;
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->delete(config('cybrid.api')."/external_bank_accounts/{$account_id}");
+        ])->delete(config('cybrid.api')."/external_wallets/{$account_id}");
 
         return self::returnData($response);
     }
@@ -155,14 +165,14 @@ class ExternalAccount
 
     public static function refreshAccount($account_id)
     {
-        $token = Auth::getToken('external_bank_accounts', 'write');
+        $token = Auth::getToken('external_wallets', 'execute');
         if ($token['status'] == false) {
             return $token;
         }
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token['response']['access_token'],
-        ])->patch(config('cybrid.api')."/external_bank_accounts/{$account_id}", [
-            "state" => "completed"
+        ])->patch(config('cybrid.api')."/external_wallets/{$account_id}", [
+            "status" => "completed"
         ]);
 
         return self::returnData($response);

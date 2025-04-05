@@ -29,7 +29,6 @@
         <div class="dashboard-main-wrapper">
         <div class="min-h-screen bg-gray-100">
 
-
             @livewire('navigation-menu')
 
             <!-- Page Heading
@@ -46,8 +45,14 @@
             <!-- Page Content -->
             <div class="dashboard-wrapper">
       <div class="dashboard-ecommerce">
+
         <div class="container-fluid dashboard-content ">
             <main>
+                @if(env('APP_ENVIRONMENT') === 'sandbox')
+                    <div class="alert alert-warning text-center mt-5">
+                        This is a sandbox environment. Do not use real data.
+                    </div>
+                @endif
                 {{ $slot }}
             </main>
 
