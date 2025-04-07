@@ -9,8 +9,8 @@ class Auth {
     {
         $response = Http::post(config('cybrid.oauth'), [
             'grant_type' => 'client_credentials',
-            'client_id' => env('CYBRID_CLIENT_ID'),
-            'client_secret' => env('CYBRID_CLIENT_SECRET'),
+            'client_id' => config('cybrid.client_id'),
+            'client_secret' => config('cybrid.client_secret'),
             'scope' => "$scope:$type",
         ]);
 
@@ -28,8 +28,8 @@ class Auth {
     {
         $response = Http::post(config('cybrid.oauth'), [
             'grant_type' => 'client_credentials',
-            'client_id' => env('CYBRID_CLIENT_ID'),
-            'client_secret' => env('CYBRID_CLIENT_SECRET'),
+            'client_id' => config('cybrid.client_id'),
+            'client_secret' => config('cybrid.client_secret'),
             'scope' => implode(' ', $scopes),
         ]);
 
